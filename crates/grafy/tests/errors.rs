@@ -14,8 +14,10 @@ fn parse_error_mentions_path() {
     };
     let msg = format!("{e}");
     assert!(msg.contains("evil.rs"), "error names the file: {msg}");
-    assert!(msg.contains("open an issue") || msg.contains("split the file"),
-            "error gives next-step action: {msg}");
+    assert!(
+        msg.contains("open an issue") || msg.contains("split the file"),
+        "error gives next-step action: {msg}"
+    );
 }
 
 #[test]

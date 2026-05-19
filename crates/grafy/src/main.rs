@@ -11,7 +11,11 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use grafy::pipeline::{to_dot, Pipeline};
 
 #[derive(Parser, Debug)]
-#[command(name = "grafy", version, about = "polyglot, LLM-free code-intelligence engine")]
+#[command(
+    name = "grafy",
+    version,
+    about = "polyglot, LLM-free code-intelligence engine"
+)]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,

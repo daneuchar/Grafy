@@ -14,7 +14,9 @@ pub fn collect_sources(root: &Path, exts: &[&str]) -> Vec<PathBuf> {
         .filter_map(|e| {
             let path = e.path();
             let ext = path.extension()?.to_str()?;
-            exts.iter().find(|&&want| want == ext).map(|_| path.to_path_buf())
+            exts.iter()
+                .find(|&&want| want == ext)
+                .map(|_| path.to_path_buf())
         })
         .collect()
 }

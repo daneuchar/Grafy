@@ -10,7 +10,9 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum ResolveError {
-    #[error("stack-graphs resolver not yet implemented (M2). Use the M1 heuristic resolver for now.")]
+    #[error(
+        "stack-graphs resolver not yet implemented (M2). Use the M1 heuristic resolver for now."
+    )]
     NotYetImplemented,
 }
 

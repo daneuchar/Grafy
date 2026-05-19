@@ -34,10 +34,7 @@ impl Unsupported {
                 "variable-length paths (`*`, `*1..3`)",
                 "use the structured tool `trace_call_path` with bounded hops",
             ),
-            Self::OptionalMatch => (
-                "`OPTIONAL MATCH`",
-                "use multiple `search_graph` calls",
-            ),
+            Self::OptionalMatch => ("`OPTIONAL MATCH`", "use multiple `search_graph` calls"),
             Self::Aggregation => (
                 "aggregations (`count`, `sum`, `collect`, …)",
                 "aggregate on the client side",
