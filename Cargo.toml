@@ -13,9 +13,9 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.78"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/grafy/grafy"
-homepage = "https://grafy.dev"
-authors = ["The Grafy Authors"]
+repository = "https://github.com/daneuchar/Grafy"
+homepage = "https://github.com/daneuchar/Grafy"
+authors = ["Daniel Euchar <daneuchar@gmail.com>"]
 
 [workspace.dependencies]
 # Parsing — M0
