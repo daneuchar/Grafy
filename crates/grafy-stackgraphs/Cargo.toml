@@ -1,0 +1,16 @@
+[package]
+name = "grafy-stackgraphs"
+description = "Stack-graphs-based name resolution for Grafy (M2 — placeholder in M0)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+tracing = { workspace = true }
+thiserror = { workspace = true }
+
+[lints.clippy]
+all = "warn"

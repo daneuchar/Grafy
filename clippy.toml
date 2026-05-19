@@ -1,0 +1,3 @@
+# Strict lints. Plan §7 risk: tree-sitter Send/Sync sharp edges.
+# Crate API must not return Node<'_> — enforced by review + this config.
+avoid-breaking-exported-api = false

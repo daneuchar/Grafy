@@ -1,0 +1,20 @@
+[package]
+name = "grafy-parser"
+description = "Thread-safe tree-sitter parser pool for Grafy. Reusable."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+tree-sitter = { workspace = true }
+tree-sitter-rust = { workspace = true }
+tree-sitter-python = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+
+[lints.clippy]
+all = "warn"
+# Send/Sync safety — keep parser pool internals from leaking Node<'a>.
