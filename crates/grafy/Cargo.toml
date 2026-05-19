@@ -1,6 +1,9 @@
 [package]
 name = "grafy"
 description = "Polyglot, LLM-free code-intelligence engine. Drop-in alternative to codebase-memory-mcp."
+readme = "README.md"
+keywords = ["code-intelligence", "mcp", "tree-sitter", "stack-graphs", "lsp"]
+categories = ["development-tools", "command-line-utilities"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -18,8 +21,8 @@ name = "grafy"
 path = "src/main.rs"
 
 [dependencies]
-grafy-parser = { path = "../grafy-parser" }
-grafy-stackgraphs = { path = "../grafy-stackgraphs" }
+grafy-parser = { path = "../grafy-parser", version = "0.1.0" }
+grafy-stackgraphs = { path = "../grafy-stackgraphs", version = "0.1.0" }
 
 # Concurrency
 rayon = { workspace = true }

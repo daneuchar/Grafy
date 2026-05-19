@@ -1,19 +1,21 @@
 [package]
 name = "grafy-bench"
 description = "Benchmark harness for Grafy — criterion + hyperfine drivers."
+readme = "README.md"
+keywords = ["benchmark", "criterion", "grafy"]
+categories = ["development-tools"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-publish = false
 
 [lib]
 path = "src/lib.rs"
 
 [dependencies]
-grafy-parser = { path = "../grafy-parser" }
+grafy-parser = { path = "../grafy-parser", version = "0.1.0" }
 rayon = { workspace = true }
 ignore = { workspace = true }
 

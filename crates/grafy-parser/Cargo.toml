@@ -1,6 +1,9 @@
 [package]
 name = "grafy-parser"
 description = "Thread-safe tree-sitter parser pool for Grafy. Reusable."
+readme = "README.md"
+keywords = ["tree-sitter", "parser", "code-intelligence", "grafy"]
+categories = ["parser-implementations", "development-tools"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

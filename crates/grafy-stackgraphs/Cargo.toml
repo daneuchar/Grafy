@@ -1,6 +1,9 @@
 [package]
 name = "grafy-stackgraphs"
 description = "Stack-graphs-based name resolution for Grafy (M2 — placeholder in M0)."
+readme = "README.md"
+keywords = ["stack-graphs", "name-resolution", "code-intelligence", "grafy"]
+categories = ["development-tools", "parser-implementations"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
