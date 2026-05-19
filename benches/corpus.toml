@@ -1,0 +1,66 @@
+# Frozen benchmark corpus. Pinned by commit SHA.
+# Plan §6. SHAs filled in at M1 week 6 (first benchmark run).
+
+[[repo]]
+name = "ripgrep"
+url = "https://github.com/BurntSushi/ripgrep"
+sha = "TBD"
+language = "rust"
+loc_approx = 50_000
+role = "Rust dogfood"
+
+[[repo]]
+name = "flask"
+url = "https://github.com/pallets/flask"
+sha = "TBD"
+language = "python"
+loc_approx = 30_000
+role = "small Python"
+
+[[repo]]
+name = "django"
+url = "https://github.com/django/django"
+sha = "TBD"
+language = "python"
+loc_approx = 500_000
+role = "Python at scale"
+
+[[repo]]
+name = "typescript"
+url = "https://github.com/microsoft/TypeScript"
+sha = "TBD"
+language = "typescript"
+loc_approx = 700_000
+role = "strict TS upper bound"
+
+[[repo]]
+name = "kubernetes"
+url = "https://github.com/kubernetes/kubernetes"
+sha = "TBD"
+language = "go"
+loc_approx = 5_000_000
+role = "Go at scale"
+
+[[repo]]
+name = "dubbo"
+url = "https://github.com/apache/dubbo"
+sha = "TBD"
+language = "java"
+loc_approx = 600_000
+role = "Java"
+
+[[repo]]
+name = "repowise"
+url = "https://github.com/repowise-dev/repowise"
+sha = "TBD"
+language = "polyglot"
+loc_approx = 10_000
+role = "real polyglot monorepo"
+
+[[repo]]
+name = "grafy"
+url = "self"
+sha = "HEAD"
+language = "rust"
+loc_approx = 0
+role = "dogfood gate"

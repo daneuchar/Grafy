@@ -1,0 +1,66 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/grafy",
+    "crates/grafy-parser",
+    "crates/grafy-stackgraphs",
+    "crates/grafy-bench",
+]
+exclude = ["fuzz"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.78"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/grafy/grafy"
+homepage = "https://grafy.dev"
+authors = ["The Grafy Authors"]
+
+[workspace.dependencies]
+# Parsing — M0
+tree-sitter = "0.22"
+tree-sitter-rust = "0.21"
+tree-sitter-python = "0.21"
+
+# Concurrency
+rayon = "1"
+crossbeam-channel = "0.5"
+dashmap = "6"
+
+# Storage
+redb = "2"
+postcard = { version = "1", features = ["alloc"] }
+
+# FS walking + hashing
+ignore = "0.4"
+blake3 = "1"
+
+# Observability — wired from commit 1
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+thiserror = "1"
+
+# Serde
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# MCP — added in M1
+# rmcp = "..."
+
+# Bench harness — grafy-bench only
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.bench]
+lto = "thin"
+debug = true
