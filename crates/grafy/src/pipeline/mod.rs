@@ -5,6 +5,9 @@
 //! 4. routes      — HTTP route ↔ call-site linking
 //!
 //! M0: structure pass only. The shape is the contract.
+//! M1 W1: channel skeleton (see `channels` module). Semantics in W2+.
+
+pub mod channels;
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;

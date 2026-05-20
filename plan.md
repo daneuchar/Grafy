@@ -290,6 +290,10 @@ Frozen corpus pinned by commit SHA in `benches/corpus.toml`:
 | Clippy lint strictness | **`-D warnings` on default lints, not pedantic.** Pedantic too noisy for v1.0 scaffold; `rust-reviewer` agent enforces stricter idioms via review. |
 | `rmcp` version pin | Deferred to M1 week 5. Workspace dep stays commented in `Cargo.toml` until then. |
 | M0 day-1 status | **Done 2026-05-19.** Workspace scaffold (4 crates), tracing wired, parser pool + bench, fuzz target, CLI (`index`/`diagnose`), dogfood gate green: `grafy index .` parses 20 `.rs` files in ~15 ms; `cargo clippy -D warnings` clean. |
+| Tree-sitter version line | **0.23**. Aligns all 12 grammar packs (M1 W1). Bump to 0.24+ only if a grammar in the v1.0 set drops 0.23 support before M1 close. `tree-sitter-c-sharp` pinned to `=0.23.1` (newer versions require tree-sitter ABI > 14). |
+| Crates.io reservation | **Shipped 2026-05-19**, all four crates at 0.1.0: `grafy-parser`, `grafy-stackgraphs`, `grafy-bench`, `grafy`. Yank-and-bump to 0.2.0 at M1 close. |
+| GitHub repo | **[daneuchar/Grafy](https://github.com/daneuchar/Grafy)**, public. Tag `m0-day1` pushed. |
+| M1 W1 status | **Done 2026-05-20.** 12 grammars compile + smoke-parse a per-language fixture (13 tests). Phase-channel skeleton (`crates/grafy/src/pipeline/channels.rs`). Heuristic call-resolver spec at `docs/m1-call-resolver.md`. `make ci` clean. |
 
 ---
 
