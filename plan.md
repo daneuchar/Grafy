@@ -294,6 +294,10 @@ Frozen corpus pinned by commit SHA in `benches/corpus.toml`:
 | Crates.io reservation | **Shipped 2026-05-19**, all four crates at 0.1.0: `grafy-parser`, `grafy-stackgraphs`, `grafy-bench`, `grafy`. Yank-and-bump to 0.2.0 at M1 close. |
 | GitHub repo | **[daneuchar/Grafy](https://github.com/daneuchar/Grafy)**, public. Tag `m0-day1` pushed. |
 | M1 W1 status | **Done 2026-05-20.** 12 grammars compile + smoke-parse a per-language fixture (13 tests). Phase-channel skeleton (`crates/grafy/src/pipeline/channels.rs`). Heuristic call-resolver spec at `docs/m1-call-resolver.md`. `make ci` clean. |
+| M1 W2 status | **Done 2026-05-20.** Pass 1 (structure) + Pass 2 (definitions) shipped. redb schema in `crates/grafy/src/store/mod.rs` (FILES/NODES/EDGES tables), deterministic blake3-derived `NodeId`, single-writer thread batching 256 events / 50 ms. Dogfood on Grafy repo: `files=44 modules=43 functions=81 structs=16 enums=8` (192 nodes total). 29 tests pass, clippy clean. |
+| Methods=0 on Rust dogfood (W2) | **Known gap.** Rust `definitions.scm` captures `impl_item` as Struct, not surfacing methods as `Method` nodes. Add `(impl_item body: (declaration_list (function_item name: (identifier) @method.name) @method.def))` in W3, before the call resolver lands — it depends on method nodes. |
+| `count_nodes_from_store` reopens redb (W2) | Pipeline opens redb for writing, joins writer, then reopens read-only for tallies. Two `Database::open` calls on the same file. W6 incremental should keep a single long-lived handle. |
+| Legacy `WriteEvent` variants | W2 added `File`/`Node`/`Edge`; legacy `Structure`/`Definition`/`Call`/`Route` retained for back-compat with the channels skeleton tests. Remove during W5 MCP cleanup. |
 
 ---
 

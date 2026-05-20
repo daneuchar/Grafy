@@ -1,4 +1,4 @@
-//! `grafy` CLI. M0 commands: `index`, `diagnose`, `version`.
+//! `grafy` CLI. M1 W2 commands: `index`, `diagnose`, `version`.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -23,9 +23,9 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
-    /// Index a repository and emit Graphviz `.dot` to stdout (M0 stub).
+    /// Index a repository and emit Graphviz `.dot` to stdout.
     Index { path: PathBuf },
-    /// Print per-phase timings for the structure pass over `path`.
+    /// Print per-phase timings and node-kind counts for `path`.
     Diagnose { path: PathBuf },
 }
 
@@ -43,28 +43,51 @@ fn main() -> Result<()> {
     match cli.cmd {
         Cmd::Index { path } => {
             let pipe = Pipeline::new(&path);
-            let summary = pipe.index()?;
-            println!("{}", to_dot(&summary, &path));
+            let report = pipe.index()?;
+            // Graphviz .dot to stdout.
+            println!("{}", to_dot(&report, &path));
+            // Summary to stderr (doesn't pollute .dot piped to graphviz).
+            eprintln!(
+                "files={} modules={} functions={} classes={} structs={} enums={} traits={} methods={}",
+                report.files,
+                report.modules,
+                report.functions,
+                report.classes,
+                report.structs,
+                report.enums,
+                report.traits,
+                report.methods,
+            );
         }
         Cmd::Diagnose { path } => {
             let pipe = Pipeline::new(&path);
             let started = Instant::now();
-            let summary = pipe.index()?;
+            let report = pipe.index()?;
             let elapsed = started.elapsed();
-            info!(target: "grafy.diagnose",
-                  total_ms = elapsed.as_millis() as u64,
-                  files_seen = summary.files_seen,
-                  files_parsed = summary.files_parsed,
-                  files_skipped = summary.files_skipped,
-                  files_failed = summary.files_failed,
-                  "diagnose complete");
+            info!(
+                target: "grafy.diagnose",
+                total_ms = elapsed.as_millis() as u64,
+                files = report.files,
+                modules = report.modules,
+                functions = report.functions,
+                classes = report.classes,
+                structs = report.structs,
+                enums = report.enums,
+                traits = report.traits,
+                methods = report.methods,
+                "diagnose complete"
+            );
             eprintln!(
-                "grafy diagnose: total={:?} seen={} parsed={} skipped={} failed={}",
+                "grafy diagnose: total={:?}  files={} modules={} functions={} classes={} structs={} enums={} traits={} methods={}",
                 elapsed,
-                summary.files_seen,
-                summary.files_parsed,
-                summary.files_skipped,
-                summary.files_failed
+                report.files,
+                report.modules,
+                report.functions,
+                report.classes,
+                report.structs,
+                report.enums,
+                report.traits,
+                report.methods,
             );
         }
     }

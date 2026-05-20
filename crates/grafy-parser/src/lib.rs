@@ -185,7 +185,11 @@ mod tests {
 
     #[test]
     fn javascript_smoke() {
-        let t = ok("smoke.js", Language::JavaScript, b"function f() { return 1; }");
+        let t = ok(
+            "smoke.js",
+            Language::JavaScript,
+            b"function f() { return 1; }",
+        );
         assert_eq!(t.root_node().kind(), "program");
     }
 
@@ -211,11 +215,7 @@ mod tests {
 
     #[test]
     fn go_smoke() {
-        let t = ok(
-            "smoke.go",
-            Language::Go,
-            b"package main\nfunc main() {}\n",
-        );
+        let t = ok("smoke.go", Language::Go, b"package main\nfunc main() {}\n");
         assert_eq!(t.root_node().kind(), "source_file");
     }
 
@@ -231,11 +231,7 @@ mod tests {
 
     #[test]
     fn cpp_smoke() {
-        let t = ok(
-            "smoke.cpp",
-            Language::Cpp,
-            b"int main() { return 0; }",
-        );
+        let t = ok("smoke.cpp", Language::Cpp, b"int main() { return 0; }");
         assert_eq!(t.root_node().kind(), "translation_unit");
     }
 

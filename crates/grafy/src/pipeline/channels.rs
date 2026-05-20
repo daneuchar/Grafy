@@ -70,9 +70,39 @@ pub struct RouteEdge {
     pub handler_fqn: String,
 }
 
+/// A file record to persist (emitted by pass 1 for each processed file).
+#[derive(Debug, Clone)]
+pub struct FileWriteEvent {
+    /// Relative path string (key in the `files` table).
+    pub rel_path: String,
+    pub record: crate::store::FileRecord,
+}
+
+/// A node record to persist (emitted by pass 2 for each definition).
+#[derive(Debug, Clone)]
+pub struct NodeWriteEvent {
+    pub id: u64,
+    pub record: crate::store::NodeRecord,
+}
+
+/// An edge to persist (emitted by pass 3 — wired now, consumed in W3).
+#[derive(Debug, Clone)]
+pub struct EdgeWriteEvent {
+    pub from: u64,
+    pub to: u64,
+    pub kind: u8,
+}
+
 /// Anything that lands in redb. The writer thread is the only consumer.
 #[derive(Debug, Clone)]
 pub enum WriteEvent {
+    /// Raw file metadata — written by pass 1.
+    File(FileWriteEvent),
+    /// Definition node — written by pass 2.
+    Node(NodeWriteEvent),
+    /// Call/import edge — written by pass 3 (W3).
+    Edge(EdgeWriteEvent),
+    // Legacy variants kept for channel tests; pipeline does not use these.
     Structure(StructureEvent),
     Definition(DefinitionEvent),
     Call(CallEdge),

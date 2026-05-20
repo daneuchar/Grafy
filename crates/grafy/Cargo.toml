@@ -24,6 +24,20 @@ path = "src/main.rs"
 grafy-parser = { path = "../grafy-parser", version = "0.1.0" }
 grafy-stackgraphs = { path = "../grafy-stackgraphs", version = "0.1.0" }
 
+# Tree-sitter grammars — needed by pass1 to compile per-file queries.
+tree-sitter = { workspace = true }
+tree-sitter-rust = { workspace = true }
+tree-sitter-python = { workspace = true }
+tree-sitter-javascript = { workspace = true }
+tree-sitter-typescript = { workspace = true }
+tree-sitter-go = { workspace = true }
+tree-sitter-java = { workspace = true }
+tree-sitter-cpp = { workspace = true }
+tree-sitter-c-sharp = { workspace = true }
+tree-sitter-php = { workspace = true }
+tree-sitter-scala = { workspace = true }
+tree-sitter-lua = { workspace = true }
+
 # Concurrency
 rayon = { workspace = true }
 crossbeam-channel = { workspace = true }
@@ -49,6 +63,11 @@ thiserror = { workspace = true }
 # Serde
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+redb = { workspace = true }
+postcard = { workspace = true }
 
 [lints.clippy]
 all = "warn"

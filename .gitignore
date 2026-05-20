@@ -37,3 +37,6 @@ Cargo.lock.bak
 
 # Logs
 *.log
+
+# Grafy local index
+/.grafy/
