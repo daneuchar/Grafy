@@ -63,6 +63,11 @@ thiserror = { workspace = true }
 # Serde
 serde = { workspace = true }
 serde_json = { workspace = true }
+regex = { workspace = true }
+
+# MCP server — M1 W5
+rmcp = { workspace = true }
+tokio = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

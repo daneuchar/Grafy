@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "project": { "type": "string" },
+    "aspects": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "required": ["project"]
+}

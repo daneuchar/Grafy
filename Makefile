@@ -1,4 +1,4 @@
-.PHONY: check fmt fmt-check clippy test bench fuzz dogfood diagnose ci clean
+.PHONY: check fmt fmt-check clippy test bench fuzz dogfood diagnose mcp ci clean
 
 # Plan §M0 acceptance helpers.
 
@@ -32,7 +32,12 @@ dogfood:
 diagnose:
 	RUST_LOG=grafy=trace cargo run -- diagnose .
 
-ci: fmt-check clippy test dogfood
+# M1 W5: validate 14-tool MCP surface (+ trace_call_path alias = 15 entries).
+# Runs grafy mcp --check: exits 0 if all tool registrations are present.
+mcp:
+	cargo run -- mcp --check
+
+ci: fmt-check clippy test dogfood mcp
 
 clean:
 	cargo clean

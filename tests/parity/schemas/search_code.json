@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "properties": {
+    "pattern": { "type": "string" },
+    "project": { "type": "string" },
+    "file_pattern": {
+      "type": "string",
+      "description": "Glob for grep --include (e.g. *.go)"
+    },
+    "path_filter": {
+      "type": "string",
+      "description": "Regex filter on result file paths (e.g. ^src/ or \\.(go|ts)$)"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["compact", "full", "files"],
+      "default": "compact",
+      "description": "compact: signatures+metadata (default). full: with source. files: just file list."
+    },
+    "context": {
+      "type": "integer",
+      "description": "Lines of context around each match (like grep -C). Only used in compact mode."
+    },
+    "regex": { "type": "boolean", "default": false },
+    "limit": {
+      "type": "integer",
+      "default": 10,
+      "description": "Max enriched results per call. Default 10. Response includes 'total_grep_matches' and 'total_results' so callers can detect truncation. No offset parameter — raise limit or narrow with file_pattern / path_filter to see more."
+    }
+  },
+  "required": ["pattern", "project"]
+}

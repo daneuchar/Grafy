@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "traces": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "project": { "type": "string" }
+  },
+  "required": ["traces", "project"]
+}

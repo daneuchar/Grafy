@@ -58,11 +58,20 @@ thiserror = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# Pattern matching — used by MCP search_graph and search_code tool handlers
+regex = "1"
+
 # Test utilities
 tempfile = "3"
 
-# MCP — added in M1
-# rmcp = "..."
+# rmcp — M1 W5. Pin 1.7.0 (latest stable as of 2026-05).
+# Uses server + macros features (stdio transport, #[tool] macros).
+# No client/HTTP/auth features pulled in — keeps the dep footprint minimal.
+# 1.x requires tree-sitter 0.23-compatible tokio ≥ 1.28; confirmed compatible.
+rmcp = { version = "1.7.0", default-features = false, features = ["server", "macros", "transport-io"] }
+
+# Async runtime — rmcp requires tokio. rt-multi-thread for blocking pipeline work.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
 
 # Bench harness — grafy-bench only
 criterion = { version = "0.5", features = ["html_reports"] }

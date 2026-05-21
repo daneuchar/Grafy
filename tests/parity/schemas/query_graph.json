@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "Cypher query"
+    },
+    "project": { "type": "string" },
+    "max_rows": {
+      "type": "integer",
+      "description": "Optional row limit. Default: unlimited up to a 100k row ceiling. No offset support — use search_graph for paginated browsing."
+    }
+  },
+  "required": ["query", "project"]
+}

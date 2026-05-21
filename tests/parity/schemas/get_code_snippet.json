@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "qualified_name": {
+      "type": "string",
+      "description": "Full qualified_name from search_graph, or short function name"
+    },
+    "project": { "type": "string" },
+    "include_neighbors": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": ["qualified_name", "project"]
+}
