@@ -1,4 +1,4 @@
-//! `grafy` CLI. M1 W2 commands: `index`, `diagnose`, `version`.
+//! `grafy` CLI. M1 commands: `index`, `diagnose`, `query`, `mcp`.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -9,6 +9,7 @@ use tracing::info;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use grafy::pipeline::{to_dot, Pipeline};
+use grafy::store::Store;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -27,19 +28,46 @@ enum Cmd {
     Index { path: PathBuf },
     /// Print per-phase timings and node-kind counts for `path`.
     Diagnose { path: PathBuf },
+    /// Execute a read-only Cypher-Lite query against an indexed repository.
+    ///
+    /// Opens `<path>/.grafy/index.redb`, runs the query, and prints rows as
+    /// JSON Lines to stdout (one per line). On error prints to stderr and exits 2.
+    Query {
+        /// Path to the indexed repository root (must contain `.grafy/index.redb`).
+        path: PathBuf,
+        /// Cypher-Lite query string (read-only, plan §5 subset).
+        cypher: String,
+    },
+    /// Start the MCP stdio server (plan §4 M1 W5).
+    Mcp {
+        /// Repository root to serve. Defaults to the current directory.
+        #[arg(long, default_value = ".")]
+        root: PathBuf,
+        /// Validate the 14 tool registrations and exit 0 without entering the stdio loop.
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 fn init_tracing() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("grafy=info"));
     tracing_subscriber::registry()
         .with(filter)
-        .with(fmt::layer().with_target(true).compact())
+        .with(fmt::layer().with_target(true).compact().with_writer(std::io::stderr))
         .init();
 }
 
 fn main() -> Result<()> {
-    init_tracing();
     let cli = Cli::parse();
+
+    // For `mcp` without --check, we must NOT call init_tracing before the
+    // tokio runtime is running and before stdio is owned by rmcp. For all
+    // other commands we initialise tracing eagerly.
+    match &cli.cmd {
+        Cmd::Mcp { check: false, .. } => {}
+        _ => init_tracing(),
+    }
+
     match cli.cmd {
         Cmd::Index { path } => {
             let pipe = Pipeline::new(&path);
@@ -95,6 +123,54 @@ fn main() -> Result<()> {
                 report.calls,
                 report.routes,
             );
+        }
+        Cmd::Query { path, cypher } => {
+            let store = match Store::open(&path) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("ERROR: {e}");
+                    std::process::exit(2);
+                }
+            };
+            match grafy::cypher::execute(store.read_db(), &cypher) {
+                Ok(rows) => {
+                    for row in rows {
+                        println!("{}", serde_json::to_string(&row).unwrap_or_else(|e| {
+                            format!("{{\"error\": \"{e}\"}}")
+                        }));
+                    }
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Cmd::Mcp { root, check } => {
+            if check {
+                // init_tracing() was already called above (Mcp { check: true } hits the `_` arm)
+                return grafy::mcp::server::check();
+            }
+
+            // Canonicalise the root path before handing it to the async runtime.
+            let root = root.canonicalize().unwrap_or(root);
+
+            // Build and run the tokio runtime that owns the MCP stdio loop.
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?
+                .block_on(async {
+                    // Init tracing now that we're in the async context.
+                    // Tracing goes to stderr; stdio belongs to rmcp.
+                    let filter = EnvFilter::try_from_default_env()
+                        .unwrap_or_else(|_| EnvFilter::new("grafy=info"));
+                    tracing_subscriber::registry()
+                        .with(filter)
+                        .with(fmt::layer().with_target(true).compact().with_writer(std::io::stderr))
+                        .init();
+
+                    grafy::mcp::server::serve(root).await
+                })?;
         }
     }
     Ok(())
