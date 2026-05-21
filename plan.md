@@ -304,6 +304,10 @@ Frozen corpus pinned by commit SHA in `benches/corpus.toml`:
 | W3 calls.scm runtime fallback | If a per-language `calls.scm`/`imports.scm` fails to compile against the live tree-sitter grammar, pass 3 logs `debug!` and emits zero edges for that file. Add a per-language `Query::new` smoke test before the django gate run. |
 | W3 reparse cost | Pass 3 reparses every file. ~2× pass 1 cost. W6 incremental caching eliminates it. |
 | W3 symbol-table memory | `HashMap`-based in-memory table; large monorepos (CPython ~4k files) could be hundreds of MB. Stream-rather-than-buffer is W6 work. |
+| M1 W4 status | **Done 2026-05-21.** Pass 4 routes shipped (`crates/grafy/src/pipeline/pass4.rs`). Three frameworks: FastAPI / Gin / Express. `crates/grafy/src/routes/<framework>/routes.scm` + lexical `detect_framework`. `NodeKind::Route` + `EdgeKind::Routes`. Pass 3 + pass 4 run in parallel scoped threads sharing `&SymbolTable`. Dogfood on `tests/fixtures/routes/`: `routes=6` (2 per framework, all handlers resolved). 47 tests pass, clippy clean. Commit `1bd5739`. |
+| Go raw-string route patterns | Gin queries match `interpreted_string_literal` only. Backtick-quoted paths (rare) not captured. v1.0 acceptable. |
+| Express middleware chaining | `app.route('/path').get(h)` not captured by `routes.scm`. v1.0 out of scope. |
+| Inline arrow handlers (Express) | Synthetic `route.handler` name based on `<file>:<line>` so route node still exists; no edge to a real definition node. Per spec. |
 
 ---
 
