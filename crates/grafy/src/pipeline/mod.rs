@@ -10,6 +10,7 @@ pub mod channels;
 pub mod pass1;
 pub mod pass2;
 pub mod pass3;
+pub mod pass4;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -44,10 +45,12 @@ pub struct IndexReport {
     pub methods: u64,
     /// Number of resolved call edges written by pass 3.
     pub calls: u64,
+    /// Number of HTTP route nodes written by pass 4.
+    pub routes: u64,
 }
 
 impl IndexReport {
-    fn from_counts(counts: &HashMap<u8, u64>, calls: u64) -> Self {
+    fn from_counts(counts: &HashMap<u8, u64>, calls: u64, routes: u64) -> Self {
         Self {
             files: *counts.get(&(NodeKind::File as u8)).unwrap_or(&0),
             modules: *counts.get(&(NodeKind::Module as u8)).unwrap_or(&0),
@@ -58,6 +61,7 @@ impl IndexReport {
             traits: *counts.get(&(NodeKind::Trait as u8)).unwrap_or(&0),
             methods: *counts.get(&(NodeKind::Method as u8)).unwrap_or(&0),
             calls,
+            routes,
         }
     }
 
@@ -70,6 +74,7 @@ impl IndexReport {
             + self.enums
             + self.traits
             + self.methods
+            + self.routes
     }
 }
 
@@ -78,7 +83,7 @@ impl Pipeline {
         Self { root: root.into() }
     }
 
-    /// Run passes 1 + 2 over `self.root`, persist to redb, return counts.
+    /// Run all four passes over `self.root`, persist to redb, return counts.
     pub fn index(&self) -> anyhow::Result<IndexReport> {
         let span = info_span!("pipeline.index", root = %self.root.display());
         let _e = span.enter();
@@ -87,17 +92,18 @@ impl Pipeline {
         let store = Store::open(&self.root)?;
 
         // ----------------------------------------------------------------
-        // Channel topology (all senders must be dropped for receivers to
-        // unblock — be explicit; never clone before the move).
+        // Channel topology:
         //
-        //   walk ──files──► pass1 ──structure──► pass2 ──definitions──► pass3
+        //   walk ──files──► pass1 ──structure──► pass2 ──definitions──► drain
         //   pass1 ──write_tx──► writer
         //   pass2 ──write_tx──► writer
-        //   pass3 ──write_tx──► writer
         //
-        //   Barrier (option a): pass3 drains definitions_rx to a Vec before
-        //   emitting any edges. The channel closes when pass2 drops
-        //   definitions_tx, signalling that all definitions are available.
+        //   Barrier: drain thread collects all DefinitionEvents, then the
+        //   pipeline builds the SymbolTable and runs pass3 + pass4 in
+        //   parallel scoped threads sharing &SymbolTable.
+        //
+        //   pass3 ──write_tx_p3──► writer
+        //   pass4 ──write_tx_p4──► writer
         // ----------------------------------------------------------------
 
         // Walk → pass 1.
@@ -106,40 +112,32 @@ impl Pipeline {
         // Pass 1 → pass 2.
         let (structure_tx, structure_rx) = bounded::<channels::StructureEvent>(CHANNEL_BUFFER);
 
-        // Pass 2 → pass 3. Pass 3 will drain this before emitting any edges.
-        let (definitions_tx, definitions_rx) = bounded::<channels::DefinitionEvent>(CHANNEL_BUFFER);
+        // Pass 2 → drain thread. Drain collects all events; its channel closes
+        // when pass 2 drops definitions_tx.
+        let (definitions_tx, definitions_rx) =
+            bounded::<channels::DefinitionEvent>(CHANNEL_BUFFER);
 
-        // Pass 1 + 2 + 3 → store writer.
+        // Pass 1 + 2 + 3 + 4 → store writer.
         let (write_tx, write_rx) = bounded::<channels::WriteEvent>(CHANNEL_BUFFER);
 
         // Spawn writer thread first.
         let writer_handle = store.writer(write_rx);
 
-        // Clone write senders for pass 2 and pass 3 before moving into threads.
+        // Clone write senders for pass 2, pass 3, pass 4 before moving into threads.
         let write_tx_p2 = write_tx.clone();
         let write_tx_p3 = write_tx.clone();
+        let write_tx_p4 = write_tx.clone();
 
         let root_p1 = self.root.clone();
         let root_p2 = self.root.clone();
-        let root_p3 = self.root.clone();
-
-        // Spawn pass 3 first so it is ready to consume definitions_rx when
-        // pass 2 starts emitting. Pass 3 uses option-a barrier: it buffers
-        // the full definitions stream before resolving calls.
-        let p3_handle = std::thread::spawn(move || {
-            pass3::run(&root_p3, definitions_rx, write_tx_p3);
-        });
 
         // Spawn pass 2.
-        // Pass 2 owns: structure_rx, definitions_tx (moved in), write_tx_p2.
-        // When pass 2 finishes, definitions_tx drops → definitions channel
-        // closes → pass 3 sees Err on recv and starts resolving.
+        // When pass 2 finishes, definitions_tx drops → definitions channel closes.
         let p2_handle = std::thread::spawn(move || {
             pass2::run(&root_p2, structure_rx, definitions_tx, write_tx_p2);
         });
 
         // Spawn pass 1.
-        // Pass 1 owns: files_rx, structure_tx (moved in), write_tx.
         // When pass 1 finishes it drops structure_tx → pass 2 sees channel close.
         let p1_handle = std::thread::spawn(move || {
             pass1::run(&root_p1, files_rx, structure_tx, write_tx);
@@ -184,27 +182,53 @@ impl Pipeline {
                 files_sent += 1;
             }
             info!(target: "grafy.pipeline", files_seen, files_sent, "walk complete");
-            // Explicitly drop files_tx here so pass 1 sees the channel close.
             drop(files_tx);
         }
 
-        // Join in pipeline order.
+        // Join pass 1 and 2.
         if let Err(e) = p1_handle.join() {
             warn!(target: "grafy.pipeline", "pass1 thread panicked: {:?}", e);
         }
-        // pass1 has finished → structure_tx and write_tx (p1 copy) dropped.
-        // pass2 will see structure_rx close and finish.
         if let Err(e) = p2_handle.join() {
             warn!(target: "grafy.pipeline", "pass2 thread panicked: {:?}", e);
         }
-        // pass2 has finished → definitions_tx dropped → definitions channel
-        // closes → pass3 unblocks and starts resolving, then finishes.
-        if let Err(e) = p3_handle.join() {
-            warn!(target: "grafy.pipeline", "pass3 thread panicked: {:?}", e);
-        }
-        // pass3 has finished → write_tx_p3 dropped.
-        // write channel is now fully closed → writer thread drains and exits.
 
+        // ----------------------------------------------------------------
+        // Option-a barrier: drain the definitions channel (now closed since
+        // pass2 dropped definitions_tx), build the shared SymbolTable, then
+        // run pass3 and pass4 in parallel sharing &SymbolTable.
+        // ----------------------------------------------------------------
+        let events: Vec<channels::DefinitionEvent> = definitions_rx.into_iter().collect();
+        tracing::info!(
+            target: "grafy.pipeline",
+            definitions = events.len(),
+            "definitions drained — building symbol table"
+        );
+
+        let sym = pass3::build_symbol_table(&events, &self.root);
+        let files = pass3::unique_files(&events);
+
+        let root_ref = &self.root;
+        let files_ref = &files;
+        let sym_ref = &sym;
+
+        // Run pass3 and pass4 in parallel scoped threads sharing &SymbolTable.
+        std::thread::scope(|s| {
+            let p3 = s.spawn(|| {
+                pass3::run_with_table(root_ref, files_ref, sym_ref, write_tx_p3);
+            });
+            let p4 = s.spawn(|| {
+                pass4::run_with_table(root_ref, files_ref, sym_ref, write_tx_p4);
+            });
+            if let Err(e) = p3.join() {
+                warn!(target: "grafy.pipeline", "pass3 thread panicked: {:?}", e);
+            }
+            if let Err(e) = p4.join() {
+                warn!(target: "grafy.pipeline", "pass4 thread panicked: {:?}", e);
+            }
+        });
+
+        // All senders dropped → writer thread drains and exits.
         let stats = match writer_handle.join() {
             Ok(s) => s,
             Err(e) => {
@@ -227,6 +251,7 @@ impl Pipeline {
             traits = report.traits,
             methods = report.methods,
             calls = report.calls,
+            routes = report.routes,
             writer_nodes = stats.nodes_written,
             writer_edges = stats.edges_written,
             "index complete"
@@ -255,7 +280,7 @@ fn count_nodes_from_store(root: &Path) -> anyhow::Result<IndexReport> {
         }
     }
 
-    // Call edge count (EdgeKind::Calls = 0).
+    // Edge counts by kind.
     let edges_tbl = tx.open_table(EDGES_TABLE)?;
     let mut calls: u64 = 0;
     for item in edges_tbl.iter()? {
@@ -266,7 +291,10 @@ fn count_nodes_from_store(root: &Path) -> anyhow::Result<IndexReport> {
         }
     }
 
-    Ok(IndexReport::from_counts(&counts, calls))
+    // Route node count (NodeKind::Route = 8).
+    let routes = *counts.get(&(NodeKind::Route as u8)).unwrap_or(&0);
+
+    Ok(IndexReport::from_counts(&counts, calls, routes))
 }
 
 /// Emit a minimal Graphviz `.dot` representation.

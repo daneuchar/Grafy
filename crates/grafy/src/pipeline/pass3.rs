@@ -81,14 +81,15 @@ pub fn lang_family(lang: Language) -> LangFamily {
 // ---------------------------------------------------------------------------
 
 /// Built once from the full `DefinitionEvent` stream before resolution begins.
-struct SymbolTable {
+/// Made `pub` so pass4 can borrow a shared reference via the pipeline.
+pub struct SymbolTable {
     /// FQN → NodeId.
-    fqn_to_id: HashMap<String, u64>,
+    pub fqn_to_id: HashMap<String, u64>,
     /// Short name (last segment) → list of NodeIds. Multiple FQNs may share a
     /// short name; all are stored for trait/interface dispatch (Family B).
-    short_name_index: HashMap<String, Vec<u64>>,
+    pub short_name_index: HashMap<String, Vec<u64>>,
     /// File path → list of (fqn, node_id) definitions in that file.
-    file_defs: HashMap<PathBuf, Vec<(String, u64)>>,
+    pub file_defs: HashMap<PathBuf, Vec<(String, u64)>>,
 }
 
 impl SymbolTable {
@@ -128,7 +129,7 @@ impl SymbolTable {
     }
 
     /// Resolve by short name: same-file definitions first, then any in the index.
-    fn resolve_short(&self, short_name: &str, file_path: &Path) -> Option<u64> {
+    pub fn resolve_short(&self, short_name: &str, file_path: &Path) -> Option<u64> {
         // Module scope: same file.
         if let Some(defs) = self.file_defs.get(file_path) {
             for (fqn, id) in defs {
@@ -144,7 +145,7 @@ impl SymbolTable {
     }
 
     /// Resolve a fully-qualified name.
-    fn resolve_fqn(&self, fqn: &str) -> Option<u64> {
+    pub fn resolve_fqn(&self, fqn: &str) -> Option<u64> {
         self.fqn_to_id.get(fqn).copied()
     }
 
@@ -162,13 +163,13 @@ impl SymbolTable {
 // ---------------------------------------------------------------------------
 
 /// Extract the last segment of a FQN (supports `::`, `.`, `/`, `\` separators).
-fn last_segment(fqn: &str) -> &str {
+pub fn last_segment(fqn: &str) -> &str {
     fqn.rsplit([':', '.', '/', '\\'])
         .next()
         .unwrap_or(fqn)
 }
 
-fn structure_kind_to_node_kind(k: crate::pipeline::channels::StructureKind) -> NodeKind {
+pub fn structure_kind_to_node_kind(k: crate::pipeline::channels::StructureKind) -> NodeKind {
     use crate::pipeline::channels::StructureKind;
     match k {
         StructureKind::Module => NodeKind::Module,
@@ -181,7 +182,7 @@ fn structure_kind_to_node_kind(k: crate::pipeline::channels::StructureKind) -> N
     }
 }
 
-fn ts_language_for(lang: Language) -> tree_sitter::Language {
+pub fn ts_language_for(lang: Language) -> tree_sitter::Language {
     match lang {
         Language::Rust => tree_sitter_rust::LANGUAGE.into(),
         Language::Python => tree_sitter_python::LANGUAGE.into(),
@@ -198,7 +199,7 @@ fn ts_language_for(lang: Language) -> tree_sitter::Language {
     }
 }
 
-fn strip_quotes(s: &str) -> String {
+pub fn strip_quotes(s: &str) -> String {
     let s = s.trim();
     if (s.starts_with('"') && s.ends_with('"'))
         || (s.starts_with('\'') && s.ends_with('\''))
@@ -574,50 +575,53 @@ fn resolve_file(
 }
 
 // ---------------------------------------------------------------------------
-// Public entry point
+// Public helpers (reused by pass4 via pipeline orchestration)
 // ---------------------------------------------------------------------------
 
-/// Run pass 3. Consumes `definitions_rx`, builds the in-memory symbol table
-/// (option-a barrier: drain full stream, then resolve in parallel), emits
-/// `WriteEvent::Edge` entries via `write_tx`.
-pub fn run(
+/// Build the in-memory symbol table from a pre-drained slice of definition events.
+/// Extracted so both pass3 and the pipeline orchestrator can call it without
+/// duplicating the drain logic.
+pub fn build_symbol_table(events: &[DefinitionEvent], root: &Path) -> SymbolTable {
+    SymbolTable::build(events, root)
+}
+
+/// Extract the unique `(file, lang)` pairs from a set of definition events.
+/// Used by both pass3 and the pipeline orchestrator.
+pub fn unique_files(events: &[DefinitionEvent]) -> Vec<(PathBuf, Language)> {
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+    events
+        .iter()
+        .filter_map(|ev| {
+            if seen.insert(ev.file_path.clone()) {
+                let lang = ev
+                    .file_path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .and_then(Language::from_extension)?;
+                Some((ev.file_path.clone(), lang))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Public entry points
+// ---------------------------------------------------------------------------
+
+/// Run pass 3 using a pre-built symbol table and pre-computed file list.
+///
+/// Called from the pipeline after draining `definitions_rx` to a `Vec` and
+/// building the shared symbol table once (which pass4 also uses).
+pub fn run_with_table(
     root: &Path,
-    definitions_rx: Receiver<DefinitionEvent>,
+    files: &[(PathBuf, Language)],
+    sym: &SymbolTable,
     write_tx: Sender<WriteEvent>,
 ) {
     let span = info_span!("pass3.calls");
     let _e = span.enter();
-
-    // Phase 1 — option-a barrier: drain until the channel closes (pass 2
-    // drops `definitions_tx` when it finishes, closing the channel).
-    let events: Vec<DefinitionEvent> = definitions_rx.into_iter().collect();
-    tracing::info!(
-        target: "grafy.pass3",
-        definitions = events.len(),
-        "symbol table built"
-    );
-
-    let sym = SymbolTable::build(&events, root);
-
-    // Collect unique (file, lang) pairs.
-    let files: Vec<(PathBuf, Language)> = {
-        let mut seen: HashSet<PathBuf> = HashSet::new();
-        events
-            .iter()
-            .filter_map(|ev| {
-                if seen.insert(ev.file_path.clone()) {
-                    let lang = ev
-                        .file_path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .and_then(Language::from_extension)?;
-                    Some((ev.file_path.clone(), lang))
-                } else {
-                    None
-                }
-            })
-            .collect()
-    };
 
     tracing::info!(
         target: "grafy.pass3",
@@ -625,10 +629,10 @@ pub fn run(
         "resolving call edges"
     );
 
-    // Phase 2 — parallel resolution via rayon.
+    // Parallel resolution via rayon.
     let all_edges: Vec<EdgeWriteEvent> = files
         .par_iter()
-        .flat_map(|(path, lang)| resolve_file(path, root, *lang, &sym))
+        .flat_map(|(path, lang)| resolve_file(path, root, *lang, sym))
         .collect();
 
     let edge_count = all_edges.len();
@@ -642,4 +646,32 @@ pub fn run(
         edges_emitted = edge_count,
         "pass3 complete"
     );
+}
+
+/// Run pass 3. Consumes `definitions_rx`, builds the in-memory symbol table
+/// (option-a barrier: drain full stream, then resolve in parallel), emits
+/// `WriteEvent::Edge` entries via `write_tx`.
+///
+/// Kept for use in unit tests and contexts where the pipeline doesn't need to
+/// share the symbol table with pass4. The pipeline orchestrator uses
+/// `run_with_table` directly.
+pub fn run(
+    root: &Path,
+    definitions_rx: Receiver<DefinitionEvent>,
+    write_tx: Sender<WriteEvent>,
+) {
+    let span = info_span!("pass3.calls.standalone");
+    let _e = span.enter();
+
+    let events: Vec<DefinitionEvent> = definitions_rx.into_iter().collect();
+    tracing::info!(
+        target: "grafy.pass3",
+        definitions = events.len(),
+        "symbol table built"
+    );
+
+    let sym = build_symbol_table(&events, root);
+    let files = unique_files(&events);
+
+    run_with_table(root, &files, &sym, write_tx);
 }

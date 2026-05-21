@@ -8,6 +8,7 @@ pub mod fqn;
 pub mod lang;
 pub mod mcp;
 pub mod pipeline;
+pub mod routes;
 pub mod store;
 pub mod watch;
 

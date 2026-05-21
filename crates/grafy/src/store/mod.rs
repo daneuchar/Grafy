@@ -59,6 +59,8 @@ pub enum NodeKind {
     Enum = 5,
     Trait = 6,
     Method = 7,
+    /// Synthetic route node emitted by pass 4. FQN format: `"METHOD /path"`.
+    Route = 8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
