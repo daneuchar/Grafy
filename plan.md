@@ -298,6 +298,12 @@ Frozen corpus pinned by commit SHA in `benches/corpus.toml`:
 | Methods=0 on Rust dogfood (W2) | **Known gap.** Rust `definitions.scm` captures `impl_item` as Struct, not surfacing methods as `Method` nodes. Add `(impl_item body: (declaration_list (function_item name: (identifier) @method.name) @method.def))` in W3, before the call resolver lands — it depends on method nodes. |
 | `count_nodes_from_store` reopens redb (W2) | Pipeline opens redb for writing, joins writer, then reopens read-only for tallies. Two `Database::open` calls on the same file. W6 incremental should keep a single long-lived handle. |
 | Legacy `WriteEvent` variants | W2 added `File`/`Node`/`Edge`; legacy `Structure`/`Definition`/`Call`/`Route` retained for back-compat with the channels skeleton tests. Remove during W5 MCP cleanup. |
+| M1 W3 status | **Done 2026-05-21.** Pass 3 heuristic call resolver shipped (`crates/grafy/src/pipeline/pass3.rs`). 12 `calls.scm` + 12 `imports.scm`; `EdgeKind::{Calls,Routes}` in store. Two-phase resolver: in-memory SymbolTable from full `DefinitionEvent` stream, then per-file edge emission. Dogfood on Grafy repo: `methods=43 calls=1192` in ~350 ms. 24 tests pass (5 new in `w3_calls.rs`), clippy clean. |
+| Method capture double-count | Python/Rust flat `function_definition`/`function_item` queries fire for impl/class bodies *and* the new `method.def` patterns fire on the same nodes — each method gets a Function node + a Method node (different `node_id`). Harmless for W3; clean fix needs tree-sitter `#not-has-ancestor?` (unavailable on tree-sitter 0.23) or restructured queries. Track for M2. |
+| W3 caller attribution overshoot | Pass 3 attributes every call site in a file to *every* definition in that file (no enclosing-function walk). Inflates edge counts on multi-function files. Fix is the enclosing-node walk — defer to W6 alongside cached parse trees. May skew the django ±10% gate; verify before declaring W6 done. |
+| W3 calls.scm runtime fallback | If a per-language `calls.scm`/`imports.scm` fails to compile against the live tree-sitter grammar, pass 3 logs `debug!` and emits zero edges for that file. Add a per-language `Query::new` smoke test before the django gate run. |
+| W3 reparse cost | Pass 3 reparses every file. ~2× pass 1 cost. W6 incremental caching eliminates it. |
+| W3 symbol-table memory | `HashMap`-based in-memory table; large monorepos (CPython ~4k files) could be hundreds of MB. Stream-rather-than-buffer is W6 work. |
 
 ---
 
