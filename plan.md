@@ -308,6 +308,12 @@ Frozen corpus pinned by commit SHA in `benches/corpus.toml`:
 | Go raw-string route patterns | Gin queries match `interpreted_string_literal` only. Backtick-quoted paths (rare) not captured. v1.0 acceptable. |
 | Express middleware chaining | `app.route('/path').get(h)` not captured by `routes.scm`. v1.0 out of scope. |
 | Inline arrow handlers (Express) | Synthetic `route.handler` name based on `<file>:<line>` so route node still exists; no edge to a real definition node. Per spec. |
+| M1 W5 status | **Done 2026-05-21.** Cypher-Lite + MCP server shipped. `crates/grafy/src/cypher/{lexer,parser,plan,executor,ast,error,scope,mod}.rs` (~2.9 kLOC), hand-rolled recursive-descent parser, read-only executor with `MAX_ROWS=100_000` cap. rmcp 1.7.0 stdio server in `crates/grafy/src/mcp/{handler,server,mod}.rs`. 14 canonical tools + 1 alias (`trace_call_path` → `trace_path`). 121 tests pass (was 47). clippy clean. `grafy mcp --check`: 15/15 OK. Commits `d11dc12` + `0f28cc8`. |
+| MCP tool surface | 14 canonical tools matching codebase-memory-mcp's `mcp.c` TOOLS[] array: `index_repository`, `search_graph`, `query_graph`, `trace_path`, `get_code_snippet`, `get_graph_schema`, `get_architecture`, `search_code`, `list_projects`, `delete_project`, `index_status`, `detect_changes`, `manage_adr`, `ingest_traces`. Plus `trace_call_path` as a `trace_path` alias for plan §1's "11 tool" wording — keeps both names live. Schemas under `tests/parity/schemas/`; differences vs upstream tracked in `tests/parity/diffs.md`. |
+| Cypher unknown-label semantics | Planner currently errors on unknown labels rather than returning zero rows (Neo4j semantics). Either is defensible; tests cover both paths. Pick one before M1 close. |
+| Cypher reverse-edge scan | `<-[:CALLS]-` does a full EDGES_TABLE scan (no reverse index). OK at current store sizes; adds an index when monorepo bench evidence requires it. |
+| Cypher regex `=~` | Tokenised + parsed into `BinOp::Regex` but executor returns `false` for all comparisons (no `regex` dep at execute time). Wire to the workspace `regex` dep before M1 close OR demote to `Unsupported::Function` and document. |
+| MCP stub tools | Tools that need external state (`delete_project`, `manage_adr`, `ingest_traces`) currently return well-formed empty responses. Wire to real state in M3 alongside `grafy install`. Tracked in `tests/parity/diffs.md`. |
 
 ---
 
