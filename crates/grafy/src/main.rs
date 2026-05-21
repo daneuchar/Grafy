@@ -48,7 +48,7 @@ fn main() -> Result<()> {
             println!("{}", to_dot(&report, &path));
             // Summary to stderr (doesn't pollute .dot piped to graphviz).
             eprintln!(
-                "files={} modules={} functions={} classes={} structs={} enums={} traits={} methods={}",
+                "files={} modules={} functions={} classes={} structs={} enums={} traits={} methods={} calls={}",
                 report.files,
                 report.modules,
                 report.functions,
@@ -57,6 +57,7 @@ fn main() -> Result<()> {
                 report.enums,
                 report.traits,
                 report.methods,
+                report.calls,
             );
         }
         Cmd::Diagnose { path } => {
@@ -75,10 +76,11 @@ fn main() -> Result<()> {
                 enums = report.enums,
                 traits = report.traits,
                 methods = report.methods,
+                calls = report.calls,
                 "diagnose complete"
             );
             eprintln!(
-                "grafy diagnose: total={:?}  files={} modules={} functions={} classes={} structs={} enums={} traits={} methods={}",
+                "grafy diagnose: total={:?}  files={} modules={} functions={} classes={} structs={} enums={} traits={} methods={} calls={}",
                 elapsed,
                 report.files,
                 report.modules,
@@ -88,6 +90,7 @@ fn main() -> Result<()> {
                 report.enums,
                 report.traits,
                 report.methods,
+                report.calls,
             );
         }
     }

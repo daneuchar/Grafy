@@ -9,6 +9,7 @@
 pub mod channels;
 pub mod pass1;
 pub mod pass2;
+pub mod pass3;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,8 @@ use crossbeam_channel::bounded;
 use ignore::WalkBuilder;
 use redb::ReadableTable;
 use tracing::{info, info_span, warn};
+
+use crate::store::EdgeKind;
 
 use grafy_parser::Language;
 
@@ -28,7 +31,7 @@ pub struct Pipeline {
     root: PathBuf,
 }
 
-/// Aggregated counts per node kind, returned from `Pipeline::index`.
+/// Aggregated counts per node kind + call edges, returned from `Pipeline::index`.
 #[derive(Debug, Default, Clone)]
 pub struct IndexReport {
     pub files: u64,
@@ -39,10 +42,12 @@ pub struct IndexReport {
     pub enums: u64,
     pub traits: u64,
     pub methods: u64,
+    /// Number of resolved call edges written by pass 3.
+    pub calls: u64,
 }
 
 impl IndexReport {
-    fn from_counts(counts: &HashMap<u8, u64>) -> Self {
+    fn from_counts(counts: &HashMap<u8, u64>, calls: u64) -> Self {
         Self {
             files: *counts.get(&(NodeKind::File as u8)).unwrap_or(&0),
             modules: *counts.get(&(NodeKind::Module as u8)).unwrap_or(&0),
@@ -52,6 +57,7 @@ impl IndexReport {
             enums: *counts.get(&(NodeKind::Enum as u8)).unwrap_or(&0),
             traits: *counts.get(&(NodeKind::Trait as u8)).unwrap_or(&0),
             methods: *counts.get(&(NodeKind::Method as u8)).unwrap_or(&0),
+            calls,
         }
     }
 
@@ -84,10 +90,14 @@ impl Pipeline {
         // Channel topology (all senders must be dropped for receivers to
         // unblock — be explicit; never clone before the move).
         //
-        //   walk ──files──► pass1 ──structure──► pass2
+        //   walk ──files──► pass1 ──structure──► pass2 ──definitions──► pass3
         //   pass1 ──write_tx──► writer
         //   pass2 ──write_tx──► writer
-        //   pass2 ──definitions──► (W3 sink: immediately dropped this week)
+        //   pass3 ──write_tx──► writer
+        //
+        //   Barrier (option a): pass3 drains definitions_rx to a Vec before
+        //   emitting any edges. The channel closes when pass2 drops
+        //   definitions_tx, signalling that all definitions are available.
         // ----------------------------------------------------------------
 
         // Walk → pass 1.
@@ -96,36 +106,41 @@ impl Pipeline {
         // Pass 1 → pass 2.
         let (structure_tx, structure_rx) = bounded::<channels::StructureEvent>(CHANNEL_BUFFER);
 
-        // Pass 2 → pass 3 (W3 stub: drop the rx so sends don't block).
+        // Pass 2 → pass 3. Pass 3 will drain this before emitting any edges.
         let (definitions_tx, definitions_rx) = bounded::<channels::DefinitionEvent>(CHANNEL_BUFFER);
 
-        // Pass 1 + 2 → store writer.
+        // Pass 1 + 2 + 3 → store writer.
         let (write_tx, write_rx) = bounded::<channels::WriteEvent>(CHANNEL_BUFFER);
 
         // Spawn writer thread first.
         let writer_handle = store.writer(write_rx);
 
-        // Clone the write sender for pass 2 before moving it into pass 1.
+        // Clone write senders for pass 2 and pass 3 before moving into threads.
         let write_tx_p2 = write_tx.clone();
+        let write_tx_p3 = write_tx.clone();
 
         let root_p1 = self.root.clone();
         let root_p2 = self.root.clone();
+        let root_p3 = self.root.clone();
 
-        // Spawn pass 2 first so it is ready when pass 1 starts emitting.
-        // Pass 2 owns: structure_rx, definitions_tx (moved in), write_tx_p2 (moved in).
-        // When pass 2 finishes, all three are dropped → structure channel &
-        // write channel (p2 copy) close on this side.
+        // Spawn pass 3 first so it is ready to consume definitions_rx when
+        // pass 2 starts emitting. Pass 3 uses option-a barrier: it buffers
+        // the full definitions stream before resolving calls.
+        let p3_handle = std::thread::spawn(move || {
+            pass3::run(&root_p3, definitions_rx, write_tx_p3);
+        });
+
+        // Spawn pass 2.
+        // Pass 2 owns: structure_rx, definitions_tx (moved in), write_tx_p2.
+        // When pass 2 finishes, definitions_tx drops → definitions channel
+        // closes → pass 3 sees Err on recv and starts resolving.
         let p2_handle = std::thread::spawn(move || {
-            // W3 stub: drop the definitions rx immediately so sends by pass2
-            // don't fill the buffer and block.  W3 will replace this with a
-            // real consumer.
-            drop(definitions_rx);
             pass2::run(&root_p2, structure_rx, definitions_tx, write_tx_p2);
         });
 
         // Spawn pass 1.
-        // Pass 1 owns: files_rx (moved in), structure_tx (moved in), write_tx (moved in).
-        // When pass 1 finishes it drops structure_tx → pass 2 sees the channel close.
+        // Pass 1 owns: files_rx, structure_tx (moved in), write_tx.
+        // When pass 1 finishes it drops structure_tx → pass 2 sees channel close.
         let p1_handle = std::thread::spawn(move || {
             pass1::run(&root_p1, files_rx, structure_tx, write_tx);
         });
@@ -182,8 +197,13 @@ impl Pipeline {
         if let Err(e) = p2_handle.join() {
             warn!(target: "grafy.pipeline", "pass2 thread panicked: {:?}", e);
         }
-        // pass2 has finished → write_tx_p2 dropped.
-        // write channel is now closed → writer thread drains and exits.
+        // pass2 has finished → definitions_tx dropped → definitions channel
+        // closes → pass3 unblocks and starts resolving, then finishes.
+        if let Err(e) = p3_handle.join() {
+            warn!(target: "grafy.pipeline", "pass3 thread panicked: {:?}", e);
+        }
+        // pass3 has finished → write_tx_p3 dropped.
+        // write channel is now fully closed → writer thread drains and exits.
 
         let stats = match writer_handle.join() {
             Ok(s) => s,
@@ -206,7 +226,9 @@ impl Pipeline {
             enums = report.enums,
             traits = report.traits,
             methods = report.methods,
+            calls = report.calls,
             writer_nodes = stats.nodes_written,
+            writer_edges = stats.edges_written,
             "index complete"
         );
 
@@ -214,25 +236,37 @@ impl Pipeline {
     }
 }
 
-/// Read the `nodes` table from the store and tally counts by `NodeKind`.
+/// Read the `nodes` and `edges` tables from the store and tally counts.
 fn count_nodes_from_store(root: &Path) -> anyhow::Result<IndexReport> {
-    use crate::store::{NodeRecord, NODES_TABLE};
+    use crate::store::{NodeRecord, EDGES_TABLE, NODES_TABLE};
     use postcard::from_bytes;
 
     let store = Store::open(root)?;
     let db = store.read_db();
     let tx = db.begin_read()?;
-    let tbl = tx.open_table(NODES_TABLE)?;
 
+    // Node counts by kind.
+    let nodes_tbl = tx.open_table(NODES_TABLE)?;
     let mut counts: HashMap<u8, u64> = HashMap::new();
-    for item in tbl.iter()? {
+    for item in nodes_tbl.iter()? {
         let (_key, val) = item?;
         if let Ok(rec) = from_bytes::<NodeRecord>(val.value()) {
             *counts.entry(rec.kind as u8).or_insert(0) += 1;
         }
     }
 
-    Ok(IndexReport::from_counts(&counts))
+    // Call edge count (EdgeKind::Calls = 0).
+    let edges_tbl = tx.open_table(EDGES_TABLE)?;
+    let mut calls: u64 = 0;
+    for item in edges_tbl.iter()? {
+        let (key, _val) = item?;
+        let (_from, _to, kind) = key.value();
+        if kind == EdgeKind::Calls as u8 {
+            calls += 1;
+        }
+    }
+
+    Ok(IndexReport::from_counts(&counts, calls))
 }
 
 /// Emit a minimal Graphviz `.dot` representation.

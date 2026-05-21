@@ -6,3 +6,7 @@
 (impl_item     trait: (type_identifier)? @impl.trait
                type: (type_identifier) @impl.type) @impl.def
 (mod_item      name: (identifier) @mod.name) @mod.def
+; M1 W3: methods inside impl blocks.
+; Anchors to declaration_list so free functions are not double-counted.
+(declaration_list
+  (function_item name: (identifier) @method.name) @method.def)

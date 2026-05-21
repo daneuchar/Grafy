@@ -38,6 +38,16 @@ pub struct FileRecord {
     pub lang: String,
 }
 
+/// Edge kind stored as the third byte of the `EDGES_TABLE` key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum EdgeKind {
+    /// A function/method call edge: caller → callee. Pass 3.
+    Calls = 0,
+    /// An HTTP route → handler edge. Pass 4.
+    Routes = 1,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum NodeKind {
