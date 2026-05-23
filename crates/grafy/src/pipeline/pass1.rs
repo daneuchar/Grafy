@@ -17,11 +17,10 @@ use std::time::SystemTime;
 use crossbeam_channel::{Receiver, Sender};
 use rayon::prelude::*;
 use tracing::{info_span, warn};
-use tree_sitter::{Query, QueryCursor};
+use tree_sitter::QueryCursor;
 
 use grafy_parser::{parse, Language};
 
-use crate::lang::definitions_scm;
 use crate::pipeline::cache::{CacheBudget, ParseCache, ParsedFile};
 use crate::pipeline::channels::{
     FileWork, FileWriteEvent, NodeWriteEvent, StructureEvent, StructureKind, WriteEvent,
@@ -195,10 +194,11 @@ fn process_file(
         );
     }
 
-    // Build query.
-    let scm = definitions_scm(lang);
-    let ts_lang = ts_language_for(lang);
-    let query = match Query::new(&ts_lang, scm) {
+    // Build query (cached per language across the run).
+    let query_arc = match crate::pipeline::queries::get(
+        lang,
+        crate::pipeline::queries::QueryKind::Definitions,
+    ) {
         Ok(q) => q,
         Err(e) => {
             warn!(
@@ -212,6 +212,7 @@ fn process_file(
             return;
         }
     };
+    let query = &*query_arc;
 
     // Walk matches — extract the `.def` capture for structure kind and the
     // `.name` capture for the symbol text. We rely on the pattern that every
@@ -238,7 +239,7 @@ fn process_file(
     let mut cursor = QueryCursor::new();
     let root_node = tree.root_node();
 
-    for m in cursor.matches(&query, root_node, &bytes[..]) {
+    for m in cursor.matches(query, root_node, &bytes[..]) {
         // Find the .def capture and the .name capture in this match.
         let mut def_kind: Option<StructureKind> = None;
         let mut def_byte_start: usize = 0;
@@ -274,25 +275,6 @@ fn process_file(
             };
             let _ = structure_tx.send(ev);
         }
-    }
-}
-
-/// Re-obtain the `tree_sitter::Language` handle for query compilation.
-/// `grafy-parser` doesn't export this directly, so we mirror the mapping.
-fn ts_language_for(lang: Language) -> tree_sitter::Language {
-    match lang {
-        Language::Rust => tree_sitter_rust::LANGUAGE.into(),
-        Language::Python => tree_sitter_python::LANGUAGE.into(),
-        Language::JavaScript => tree_sitter_javascript::LANGUAGE.into(),
-        Language::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-        Language::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
-        Language::Go => tree_sitter_go::LANGUAGE.into(),
-        Language::Java => tree_sitter_java::LANGUAGE.into(),
-        Language::Cpp => tree_sitter_cpp::LANGUAGE.into(),
-        Language::CSharp => tree_sitter_c_sharp::LANGUAGE.into(),
-        Language::Php => tree_sitter_php::LANGUAGE_PHP.into(),
-        Language::Scala => tree_sitter_scala::LANGUAGE.into(),
-        Language::Lua => tree_sitter_lua::LANGUAGE.into(),
     }
 }
 

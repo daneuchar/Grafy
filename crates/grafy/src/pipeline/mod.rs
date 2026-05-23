@@ -13,6 +13,7 @@ pub mod pass1;
 pub mod pass2;
 pub mod pass3;
 pub mod pass4;
+pub mod queries;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

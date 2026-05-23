@@ -43,11 +43,10 @@ use std::time::Instant;
 use crossbeam_channel::{Receiver, Sender};
 use rayon::prelude::*;
 use tracing::{debug, info_span, warn};
-use tree_sitter::{Query, QueryCursor};
+use tree_sitter::QueryCursor;
 
 use grafy_parser::{Language, PER_FILE_TIMEOUT};
 
-use crate::lang::{calls_scm, imports_scm};
 use crate::pipeline::cache::ParseCache;
 use crate::pipeline::channels::{DefinitionEvent, EdgeWriteEvent, WriteEvent};
 use crate::store::{node_id, EdgeKind, NodeKind};
@@ -337,8 +336,10 @@ fn extract_call_sites(
     tree: &tree_sitter::Tree,
     lang: Language,
 ) -> Vec<CallSite> {
-    let ts_lang = ts_language_for(lang);
-    let query = match Query::new(&ts_lang, calls_scm(lang)) {
+    let query_arc = match crate::pipeline::queries::get(
+        lang,
+        crate::pipeline::queries::QueryKind::Calls,
+    ) {
         Ok(q) => q,
         Err(e) => {
             debug!(
@@ -349,6 +350,7 @@ fn extract_call_sites(
             return vec![];
         }
     };
+    let query = &*query_arc;
 
     let capture_names: Vec<String> = query
         .capture_names()
@@ -359,7 +361,7 @@ fn extract_call_sites(
     let mut cursor = QueryCursor::new();
     let mut sites = Vec::new();
 
-    for m in cursor.matches(&query, tree.root_node(), bytes) {
+    for m in cursor.matches(query, tree.root_node(), bytes) {
         let mut call_name: Option<String> = None;
         let mut call_receiver: Option<String> = None;
         let mut call_byte_start: u32 = 0;
@@ -398,8 +400,10 @@ fn extract_imports(
     tree: &tree_sitter::Tree,
     lang: Language,
 ) -> Vec<ImportBinding> {
-    let ts_lang = ts_language_for(lang);
-    let query = match Query::new(&ts_lang, imports_scm(lang)) {
+    let query_arc = match crate::pipeline::queries::get(
+        lang,
+        crate::pipeline::queries::QueryKind::Imports,
+    ) {
         Ok(q) => q,
         Err(e) => {
             debug!(
@@ -410,6 +414,7 @@ fn extract_imports(
             return vec![];
         }
     };
+    let query = &*query_arc;
 
     let capture_names: Vec<String> = query
         .capture_names()
@@ -420,7 +425,7 @@ fn extract_imports(
     let mut cursor = QueryCursor::new();
     let mut bindings = Vec::new();
 
-    for m in cursor.matches(&query, tree.root_node(), bytes) {
+    for m in cursor.matches(query, tree.root_node(), bytes) {
         let mut import_name: Option<String> = None;
         let mut import_module: Option<String> = None;
 
