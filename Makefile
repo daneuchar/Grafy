@@ -1,4 +1,4 @@
-.PHONY: check fmt fmt-check clippy test bench fuzz dogfood diagnose mcp parity ci clean
+.PHONY: check fmt fmt-check clippy test bench bench-m1 fuzz dogfood diagnose mcp parity ci clean
 
 # Plan §M0 acceptance helpers.
 
@@ -20,6 +20,14 @@ test:
 # Plan §6 bench corpus runner — wired in M1.
 bench:
 	cargo bench -p grafy-bench
+
+# M1 W6 head-to-head benchmark: Grafy vs codebase-memory-mcp.
+# Requires: hyperfine, git, npm (codebase-memory-mcp).
+# Cold-index runs delete .grafy / CMM .db before each hyperfine iteration.
+# macOS note: sudo purge is NOT called (requires root). Numbers reflect
+# OS-page-cache-warm cold starts. See benches/m1-report.md §Setup.
+bench-m1:
+	bash benches/run_m1.sh
 
 # Plan §M0 fuzz target. Honours $FUZZ_MAX_TOTAL_TIME for CI timeboxing.
 fuzz:

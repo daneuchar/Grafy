@@ -1,0 +1,23 @@
+{
+  "grafy_sha": "213fd215cf5f5b26aac5c2cea576dcba37d8ce39",
+  "run_date": "2026-05-23",
+  "host": "MacBookPro arm64 Darwin 25.5.0",
+  "ncpu": 10,
+  "ram_gb": 16,
+  "rust_version": "1.88.0",
+  "grafy_binary": "target/release/grafy",
+  "cmm_version": "0.6.1",
+  "hyperfine_version": "1.20.0",
+  "runs_per_benchmark": 10,
+  "warmup_runs": 1,
+  "repos_measured": ["ripgrep", "flask", "grafy-self", "fixtures"],
+  "repos_deferred": ["django", "TypeScript", "kubernetes", "dubbo", "repowise"],
+  "deferral_reason": "clone + full index exceeds 30-min session budget per task scoping",
+  "notes": [
+    "Cold index = .grafy dir deleted before each run (grafy) / .db file deleted (CMM)",
+    "Warm index = index already present, re-run detects unchanged files",
+    "Incremental = one file touched via `touch` before each run",
+    "FS cache not dropped between runs (macOS purge requires sudo; no 100MB trick applied)",
+    "W3 heuristic caller-attribution overshoot inflates call edge counts (plan §8)"
+  ]
+}

@@ -1,10 +1,10 @@
 # Frozen benchmark corpus. Pinned by commit SHA.
-# Plan §6. SHAs filled in at M1 week 6 (first benchmark run).
+# Plan §6. SHAs filled in at M1 week 6 (2026-05-23 bench run).
 
 [[repo]]
 name = "ripgrep"
 url = "https://github.com/BurntSushi/ripgrep"
-sha = "TBD"
+sha = "4519153e5e461527f4bca45b042fff45c4ec6fb9"
 language = "rust"
 loc_approx = 50_000
 role = "Rust dogfood"
@@ -12,7 +12,7 @@ role = "Rust dogfood"
 [[repo]]
 name = "flask"
 url = "https://github.com/pallets/flask"
-sha = "TBD"
+sha = "954f5684e4841aad84a8eec7ace7b81a0d3f6831"
 language = "python"
 loc_approx = 30_000
 role = "small Python"
@@ -20,47 +20,52 @@ role = "small Python"
 [[repo]]
 name = "django"
 url = "https://github.com/django/django"
-sha = "TBD"
+sha = "a53e02af6d7a07d0367b534f7107a0e2a37e3d34"
 language = "python"
 loc_approx = 500_000
 role = "Python at scale"
+# Deferred: clone + full index exceeds 30-min session budget. See report §Setup.
 
 [[repo]]
 name = "typescript"
 url = "https://github.com/microsoft/TypeScript"
-sha = "TBD"
+sha = "e5509e211f5df999f54527daefaf47bc7bc1b1eb"
 language = "typescript"
 loc_approx = 700_000
 role = "strict TS upper bound"
+# Deferred: clone + full index exceeds 30-min session budget. See report §Setup.
 
 [[repo]]
 name = "kubernetes"
 url = "https://github.com/kubernetes/kubernetes"
-sha = "TBD"
+sha = "dd3ea47d4c38c6a1f189a3b46730fbe46c351723"
 language = "go"
 loc_approx = 5_000_000
 role = "Go at scale"
+# Deferred: clone + full index exceeds 30-min session budget. See report §Setup.
 
 [[repo]]
 name = "dubbo"
 url = "https://github.com/apache/dubbo"
-sha = "TBD"
+sha = "abf4e985815aa70aaa79294b680f0ad814a2f45d"
 language = "java"
 loc_approx = 600_000
 role = "Java"
+# Deferred: clone + full index exceeds 30-min session budget. See report §Setup.
 
 [[repo]]
 name = "repowise"
 url = "https://github.com/repowise-dev/repowise"
-sha = "TBD"
+sha = "8d1d1875bb45213f26d55f1cb687a5d8628b3efb"
 language = "polyglot"
 loc_approx = 10_000
 role = "real polyglot monorepo"
+# Deferred: could not confirm public access; skipped this run. See report §Setup.
 
 [[repo]]
 name = "grafy"
 url = "self"
-sha = "HEAD"
+sha = "213fd215cf5f5b26aac5c2cea576dcba37d8ce39"
 language = "rust"
 loc_approx = 0
 role = "dogfood gate"

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "title": {
+    "text": "Grafy vs codebase-memory-mcp — Cold Index Throughput (M1 W6)",
+    "subtitle": "Lower is better. 10 runs, mean ± stdev. macOS arm64, 10 cores."
+  },
+  "width": 500,
+  "height": 300,
+  "data": {
+    "values": [
+      {"repo": "ripgrep",    "tool": "Grafy",                "mean_ms": 9682.5, "stdev_ms": 530.1},
+      {"repo": "ripgrep",    "tool": "codebase-memory-mcp",  "mean_ms": 425.3,  "stdev_ms": 16.6},
+      {"repo": "flask",      "tool": "Grafy",                "mean_ms": 1894.7, "stdev_ms": 264.3},
+      {"repo": "flask",      "tool": "codebase-memory-mcp",  "mean_ms": 543.6,  "stdev_ms": 130.9},
+      {"repo": "grafy-self", "tool": "Grafy",                "mean_ms": 787.2,  "stdev_ms": 22.9},
+      {"repo": "grafy-self", "tool": "codebase-memory-mcp",  "mean_ms": 450.3,  "stdev_ms": 86.9},
+      {"repo": "fixtures",   "tool": "Grafy",                "mean_ms": 36.8,   "stdev_ms": 8.2},
+      {"repo": "fixtures",   "tool": "codebase-memory-mcp",  "mean_ms": 76.8,   "stdev_ms": 2.4}
+    ]
+  },
+  "layer": [
+    {
+      "mark": "bar",
+      "encoding": {
+        "x": {
+          "field": "tool",
+          "type": "nominal",
+          "title": null,
+          "axis": {"labelAngle": 0}
+        },
+        "y": {
+          "field": "mean_ms",
+          "type": "quantitative",
+          "title": "Mean index time (ms)"
+        },
+        "color": {
+          "field": "tool",
+          "type": "nominal",
+          "scale": {"range": ["#2ca02c", "#1f77b4"]},
+          "legend": {"title": "Tool"}
+        },
+        "xOffset": {"field": "tool", "type": "nominal"},
+        "column": {
+          "field": "repo",
+          "type": "nominal",
+          "title": "Repository"
+        },
+        "tooltip": [
+          {"field": "repo", "type": "nominal", "title": "Repo"},
+          {"field": "tool", "type": "nominal", "title": "Tool"},
+          {"field": "mean_ms", "type": "quantitative", "title": "Mean (ms)", "format": ".1f"},
+          {"field": "stdev_ms", "type": "quantitative", "title": "Stdev (ms)", "format": ".1f"}
+        ]
+      }
+    },
+    {
+      "mark": {"type": "errorbar", "extent": "stdev"},
+      "encoding": {
+        "x": {"field": "tool", "type": "nominal"},
+        "y": {"field": "mean_ms", "type": "quantitative"},
+        "yError": {"field": "stdev_ms"},
+        "xOffset": {"field": "tool", "type": "nominal"},
+        "column": {"field": "repo", "type": "nominal"}
+      }
+    }
+  ]
+}
