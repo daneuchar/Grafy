@@ -51,29 +51,29 @@ pub enum Token {
     Remove,
     Optional,
     // --- Symbols ---
-    LParen,   // (
-    RParen,   // )
-    LBracket, // [
-    RBracket, // ]
-    LBrace,   // {
-    RBrace,   // }
-    Comma,    // ,
-    Dot,      // .
-    Colon,    // :
-    Semicolon, // ;
-    Minus,    // -
-    Star,     // *
-    Pipe,     // |
-    Arrow,    // ->
-    LeftArrow, // <-
+    LParen,     // (
+    RParen,     // )
+    LBracket,   // [
+    RBracket,   // ]
+    LBrace,     // {
+    RBrace,     // }
+    Comma,      // ,
+    Dot,        // .
+    Colon,      // :
+    Semicolon,  // ;
+    Minus,      // -
+    Star,       // *
+    Pipe,       // |
+    Arrow,      // ->
+    LeftArrow,  // <-
     DoubleDash, // --
-    Lt,       // <
-    Gt,       // >
-    Le,       // <=
-    Ge,       // >=
-    Eq,       // =
-    Neq,      // != or <>
-    RegexEq,  // =~
+    Lt,         // <
+    Gt,         // >
+    Le,         // <=
+    Ge,         // >=
+    Eq,         // =
+    Neq,        // != or <>
+    RegexEq,    // =~
     // --- Literals ---
     StringLit(String),
     IntLit(i64),
@@ -138,7 +138,11 @@ pub fn tokenize(query: &str) -> Result<Vec<Spanned<Token>>, CypherError> {
                 _ => None,
             };
             if let Some(t) = tok {
-                tokens.push(Spanned { token: t, start, end: pos + 2 });
+                tokens.push(Spanned {
+                    token: t,
+                    start,
+                    end: pos + 2,
+                });
                 pos += 2;
                 continue;
             }
@@ -165,7 +169,11 @@ pub fn tokenize(query: &str) -> Result<Vec<Spanned<Token>>, CypherError> {
             _ => None,
         };
         if let Some(t) = single {
-            tokens.push(Spanned { token: t, start, end: pos + 1 });
+            tokens.push(Spanned {
+                token: t,
+                start,
+                end: pos + 1,
+            });
             pos += 1;
             continue;
         }
@@ -177,7 +185,10 @@ pub fn tokenize(query: &str) -> Result<Vec<Spanned<Token>>, CypherError> {
             let mut s = String::new();
             loop {
                 if pos >= len {
-                    return Err(CypherError::parse("unterminated string literal", (start, pos)));
+                    return Err(CypherError::parse(
+                        "unterminated string literal",
+                        (start, pos),
+                    ));
                 }
                 if bytes[pos] == quote {
                     pos += 1;
@@ -186,7 +197,10 @@ pub fn tokenize(query: &str) -> Result<Vec<Spanned<Token>>, CypherError> {
                 if bytes[pos] == b'\\' {
                     pos += 1;
                     if pos >= len {
-                        return Err(CypherError::parse("unterminated escape sequence", (start, pos)));
+                        return Err(CypherError::parse(
+                            "unterminated escape sequence",
+                            (start, pos),
+                        ));
                     }
                     match bytes[pos] {
                         b'n' => s.push('\n'),
@@ -211,7 +225,11 @@ pub fn tokenize(query: &str) -> Result<Vec<Spanned<Token>>, CypherError> {
                     s.push_str(&query[ch_start..pos]);
                 }
             }
-            tokens.push(Spanned { token: Token::StringLit(s), start, end: pos });
+            tokens.push(Spanned {
+                token: Token::StringLit(s),
+                start,
+                end: pos,
+            });
             continue;
         }
 
@@ -223,16 +241,25 @@ pub fn tokenize(query: &str) -> Result<Vec<Spanned<Token>>, CypherError> {
                 pos += 1;
             }
             if pos >= len {
-                return Err(CypherError::parse("unterminated backtick identifier", (start, pos)));
+                return Err(CypherError::parse(
+                    "unterminated backtick identifier",
+                    (start, pos),
+                ));
             }
             let ident = query[id_start..pos].to_string();
             pos += 1; // skip closing backtick
-            tokens.push(Spanned { token: Token::Ident(ident), start, end: pos });
+            tokens.push(Spanned {
+                token: Token::Ident(ident),
+                start,
+                end: pos,
+            });
             continue;
         }
 
         // Numbers: integer or float.
-        if bytes[pos].is_ascii_digit() || (bytes[pos] == b'-' && pos + 1 < len && bytes[pos + 1].is_ascii_digit()) {
+        if bytes[pos].is_ascii_digit()
+            || (bytes[pos] == b'-' && pos + 1 < len && bytes[pos + 1].is_ascii_digit())
+        {
             // Note: bare `-` before a digit — handle only when clearly numeric context.
             // In practice the parser passes the Minus token for ambiguous cases.
             let num_start = pos;
@@ -266,12 +293,20 @@ pub fn tokenize(query: &str) -> Result<Vec<Spanned<Token>>, CypherError> {
                 let f: f64 = num_str.parse().map_err(|_| {
                     CypherError::parse(format!("invalid float literal `{num_str}`"), (start, pos))
                 })?;
-                tokens.push(Spanned { token: Token::FloatLit(f), start, end: pos });
+                tokens.push(Spanned {
+                    token: Token::FloatLit(f),
+                    start,
+                    end: pos,
+                });
             } else {
                 let i: i64 = num_str.parse().map_err(|_| {
                     CypherError::parse(format!("invalid integer literal `{num_str}`"), (start, pos))
                 })?;
-                tokens.push(Spanned { token: Token::IntLit(i), start, end: pos });
+                tokens.push(Spanned {
+                    token: Token::IntLit(i),
+                    start,
+                    end: pos,
+                });
             }
             continue;
         }
@@ -279,12 +314,18 @@ pub fn tokenize(query: &str) -> Result<Vec<Spanned<Token>>, CypherError> {
         // Identifiers and keywords (ASCII + underscore; also accept leading $ for params).
         if bytes[pos].is_ascii_alphabetic() || bytes[pos] == b'_' || bytes[pos] == b'$' {
             let id_start = pos;
-            while pos < len && (bytes[pos].is_ascii_alphanumeric() || bytes[pos] == b'_' || bytes[pos] == b'$') {
+            while pos < len
+                && (bytes[pos].is_ascii_alphanumeric() || bytes[pos] == b'_' || bytes[pos] == b'$')
+            {
                 pos += 1;
             }
             let raw = &query[id_start..pos];
             let tok = keyword_or_ident(raw);
-            tokens.push(Spanned { token: tok, start, end: pos });
+            tokens.push(Spanned {
+                token: tok,
+                start,
+                end: pos,
+            });
             continue;
         }
 
@@ -352,10 +393,19 @@ mod tests {
     #[test]
     fn symbols() {
         let t = toks("->  <-  --  <=  >=  !=  <>  =~");
-        assert_eq!(t, vec![
-            Token::Arrow, Token::LeftArrow, Token::DoubleDash,
-            Token::Le, Token::Ge, Token::Neq, Token::Neq, Token::RegexEq,
-        ]);
+        assert_eq!(
+            t,
+            vec![
+                Token::Arrow,
+                Token::LeftArrow,
+                Token::DoubleDash,
+                Token::Le,
+                Token::Ge,
+                Token::Neq,
+                Token::Neq,
+                Token::RegexEq,
+            ]
+        );
     }
 
     #[test]

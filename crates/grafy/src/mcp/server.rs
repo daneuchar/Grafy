@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use rmcp::{ServiceExt, transport::stdio};
+use rmcp::{transport::stdio, ServiceExt};
 
 use super::handler::GrafyServer;
 
@@ -20,7 +20,9 @@ pub async fn serve(root: PathBuf) -> Result<()> {
 
     let server = GrafyServer::new(root);
     let service = server.serve(stdio()).await.map_err(|e| {
-        anyhow::anyhow!("mcp server: failed to start stdio transport — check stdin/stdout are a pipe. ({e})")
+        anyhow::anyhow!(
+            "mcp server: failed to start stdio transport — check stdin/stdout are a pipe. ({e})"
+        )
     })?;
 
     service.waiting().await.map_err(|e| {
@@ -43,7 +45,10 @@ pub fn check() -> Result<()> {
     const EXPECTED: usize = 15;
 
     let count = TOOL_NAMES.len();
-    println!("grafy mcp --check: {count} tool entries registered ({} canonical + 1 alias)", EXPECTED - 1);
+    println!(
+        "grafy mcp --check: {count} tool entries registered ({} canonical + 1 alias)",
+        EXPECTED - 1
+    );
     for name in TOOL_NAMES {
         println!("  ok  {name}");
     }

@@ -93,8 +93,8 @@ pub fn run(db: &redb::Database, pipeline: &Pipeline) -> Result<Vec<Row>, CypherE
                     .iter()
                     .map_err(|e| CypherError::Storage(anyhow::anyhow!("{e}")))?
                 {
-                    let (id_guard, bytes_guard) = entry
-                        .map_err(|e| CypherError::Storage(anyhow::anyhow!("{e}")))?;
+                    let (id_guard, bytes_guard) =
+                        entry.map_err(|e| CypherError::Storage(anyhow::anyhow!("{e}")))?;
                     let id = id_guard.value();
                     let bytes = bytes_guard.value();
                     let record: NodeRecord = postcard::from_bytes(bytes)
@@ -152,8 +152,8 @@ pub fn run(db: &redb::Database, pipeline: &Pipeline) -> Result<Vec<Row>, CypherE
                         .map_err(|e| CypherError::Storage(anyhow::anyhow!("{e}")))?;
 
                     for entry in edge_iter {
-                        let (key_guard, _) = entry
-                            .map_err(|e| CypherError::Storage(anyhow::anyhow!("{e}")))?;
+                        let (key_guard, _) =
+                            entry.map_err(|e| CypherError::Storage(anyhow::anyhow!("{e}")))?;
                         let (ef, et, ek) = key_guard.value();
 
                         if ef != from_id {
@@ -218,8 +218,8 @@ pub fn run(db: &redb::Database, pipeline: &Pipeline) -> Result<Vec<Row>, CypherE
                             .iter()
                             .map_err(|e| CypherError::Storage(anyhow::anyhow!("{e}")))?;
                         for entry in all_edges {
-                            let (key_guard, _) = entry
-                                .map_err(|e| CypherError::Storage(anyhow::anyhow!("{e}")))?;
+                            let (key_guard, _) =
+                                entry.map_err(|e| CypherError::Storage(anyhow::anyhow!("{e}")))?;
                             let (ef2, et2, ek2) = key_guard.value();
                             if et2 != from_id {
                                 continue;
@@ -247,7 +247,11 @@ pub fn run(db: &redb::Database, pipeline: &Pipeline) -> Result<Vec<Row>, CypherE
                                 });
                             }
 
-                            let ev = EdgeValue { from: ef2, to: et2, kind: kind_str2.to_string() };
+                            let ev = EdgeValue {
+                                from: ef2,
+                                to: et2,
+                                kind: kind_str2.to_string(),
+                            };
                             let mut r = row.clone();
                             r.insert(to.clone(), Value::Node(node_value(ef2, &to_record)));
                             if let Some(evar) = &edge.var {
@@ -270,11 +274,9 @@ pub fn run(db: &redb::Database, pipeline: &Pipeline) -> Result<Vec<Row>, CypherE
                     .map(|row| {
                         let mut out = Row::new();
                         for item in items {
-                            let col_name = item.alias.clone().unwrap_or_else(|| {
-                                match &item.expr {
-                                    ReturnExpr::Var(v) => v.clone(),
-                                    ReturnExpr::Prop(v, p) => format!("{v}.{p}"),
-                                }
+                            let col_name = item.alias.clone().unwrap_or_else(|| match &item.expr {
+                                ReturnExpr::Var(v) => v.clone(),
+                                ReturnExpr::Prop(v, p) => format!("{v}.{p}"),
                             });
                             let val = eval_return_expr(&item.expr, row);
                             out.insert(col_name, val);
@@ -380,25 +382,23 @@ fn eval_expr(expr: &Expr, row: &InternalRow) -> EvalResult {
             let b = eval_expr(inner, row).is_truthy();
             EvalResult::Value(Value::Bool(!b))
         }
-        Expr::Binary(lhs, op, rhs) => {
-            match op {
-                BinOp::And => {
-                    let l = eval_expr(lhs, row).is_truthy();
-                    let r = eval_expr(rhs, row).is_truthy();
-                    EvalResult::Value(Value::Bool(l && r))
-                }
-                BinOp::Or => {
-                    let l = eval_expr(lhs, row).is_truthy();
-                    let r = eval_expr(rhs, row).is_truthy();
-                    EvalResult::Value(Value::Bool(l || r))
-                }
-                _ => {
-                    let lv = eval_expr(lhs, row).inner();
-                    let rv = eval_expr(rhs, row).inner();
-                    EvalResult::Value(Value::Bool(eval_binary_cmp(op, &lv, &rv)))
-                }
+        Expr::Binary(lhs, op, rhs) => match op {
+            BinOp::And => {
+                let l = eval_expr(lhs, row).is_truthy();
+                let r = eval_expr(rhs, row).is_truthy();
+                EvalResult::Value(Value::Bool(l && r))
             }
-        }
+            BinOp::Or => {
+                let l = eval_expr(lhs, row).is_truthy();
+                let r = eval_expr(rhs, row).is_truthy();
+                EvalResult::Value(Value::Bool(l || r))
+            }
+            _ => {
+                let lv = eval_expr(lhs, row).inner();
+                let rv = eval_expr(rhs, row).inner();
+                EvalResult::Value(Value::Bool(eval_binary_cmp(op, &lv, &rv)))
+            }
+        },
     }
 }
 
@@ -449,8 +449,12 @@ fn compare_values(a: &Value, b: &Value) -> std::cmp::Ordering {
         (Value::Int(x), Value::Int(y)) => x.cmp(y),
         (Value::Float(x), Value::Float(y)) => x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal),
         (Value::Str(x), Value::Str(y)) => x.cmp(y),
-        (Value::Int(x), Value::Float(y)) => (*x as f64).partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal),
-        (Value::Float(x), Value::Int(y)) => x.partial_cmp(&(*y as f64)).unwrap_or(std::cmp::Ordering::Equal),
+        (Value::Int(x), Value::Float(y)) => (*x as f64)
+            .partial_cmp(y)
+            .unwrap_or(std::cmp::Ordering::Equal),
+        (Value::Float(x), Value::Int(y)) => x
+            .partial_cmp(&(*y as f64))
+            .unwrap_or(std::cmp::Ordering::Equal),
         _ => std::cmp::Ordering::Equal,
     }
 }
@@ -503,7 +507,9 @@ fn eval_return_expr(expr: &ReturnExpr, row: &InternalRow) -> Value {
             }
             // Fallback: look up the projected column name (post-projection rows).
             let projected_key = format!("{var}.{prop}");
-            row.get(projected_key.as_str()).cloned().unwrap_or(Value::Null)
+            row.get(projected_key.as_str())
+                .cloned()
+                .unwrap_or(Value::Null)
         }
     }
 }
@@ -562,12 +568,7 @@ fn edge_types_match(edge: &EdgePat, kind_str: &str) -> bool {
 /// For Expand, the direction from the perspective of the `from` node.
 /// In the forward scan we always get edges where ef == from_id, so
 /// LeftToRight and Undirected both match. RightToLeft is handled separately.
-fn direction_ok(
-    edge: &EdgePat,
-    _from_id: u64,
-    _ef: u64,
-    _et: u64,
-) -> bool {
+fn direction_ok(edge: &EdgePat, _from_id: u64, _ef: u64, _et: u64) -> bool {
     // For the forward range scan (ef == from_id), LeftToRight and Undirected are valid.
     !matches!(edge.direction, crate::cypher::ast::Direction::RightToLeft)
 }
@@ -591,7 +592,10 @@ mod tests {
     #[test]
     fn lit_to_value_roundtrip() {
         assert_eq!(lit_to_value(&Lit::Int(42)), Value::Int(42));
-        assert_eq!(lit_to_value(&Lit::Str("hi".into())), Value::Str("hi".into()));
+        assert_eq!(
+            lit_to_value(&Lit::Str("hi".into())),
+            Value::Str("hi".into())
+        );
         assert_eq!(lit_to_value(&Lit::Bool(true)), Value::Bool(true));
         assert!(matches!(lit_to_value(&Lit::Null), Value::Null));
     }

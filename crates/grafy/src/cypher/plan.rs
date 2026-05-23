@@ -71,9 +71,11 @@ impl Planner {
             return Err(Unsupported::MultipleMatch.into());
         }
 
-        let match_clause = query.match_clauses.into_iter().next().ok_or_else(|| {
-            CypherError::parse("query has no MATCH clause", (0, 0))
-        })?;
+        let match_clause = query
+            .match_clauses
+            .into_iter()
+            .next()
+            .ok_or_else(|| CypherError::parse("query has no MATCH clause", (0, 0)))?;
 
         let pattern = match_clause.pattern;
 
@@ -95,7 +97,12 @@ impl Planner {
             .var
             .clone()
             .unwrap_or_else(|| "_n0".to_string());
-        let head_label = pattern.head.label.as_deref().map(label_to_kind).transpose()?;
+        let head_label = pattern
+            .head
+            .label
+            .as_deref()
+            .map(label_to_kind)
+            .transpose()?;
         pipeline.push(PlanNode::Scan {
             var: head_var.clone(),
             label: head_label,
@@ -258,11 +265,34 @@ mod tests {
         use crate::cypher::ast::*;
         let q = Query {
             match_clauses: vec![
-                MatchClause { pattern: Pattern { head: NodePat { var: Some("a".into()), label: None, properties: vec![] }, segments: vec![] } },
-                MatchClause { pattern: Pattern { head: NodePat { var: Some("b".into()), label: None, properties: vec![] }, segments: vec![] } },
+                MatchClause {
+                    pattern: Pattern {
+                        head: NodePat {
+                            var: Some("a".into()),
+                            label: None,
+                            properties: vec![],
+                        },
+                        segments: vec![],
+                    },
+                },
+                MatchClause {
+                    pattern: Pattern {
+                        head: NodePat {
+                            var: Some("b".into()),
+                            label: None,
+                            properties: vec![],
+                        },
+                        segments: vec![],
+                    },
+                },
             ],
             where_clause: None,
-            return_clause: ReturnClause { items: vec![ReturnItem { expr: ReturnExpr::Var("a".into()), alias: None }] },
+            return_clause: ReturnClause {
+                items: vec![ReturnItem {
+                    expr: ReturnExpr::Var("a".into()),
+                    alias: None,
+                }],
+            },
             order_by: None,
             skip: None,
             limit: None,

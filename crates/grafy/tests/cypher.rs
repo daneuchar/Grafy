@@ -269,8 +269,8 @@ fn parse_ends_with_predicate() {
 // ---------------------------------------------------------------------------
 
 fn assert_unsupported_with_docs(query: &str) {
-    let e = grafy::cypher::parser::parse(query)
-        .expect_err(&format!("expected error for {query:?}"));
+    let e =
+        grafy::cypher::parser::parse(query).expect_err(&format!("expected error for {query:?}"));
     assert!(
         matches!(e, CypherError::Unsupported(_)),
         "expected Unsupported but got: {e:?}"
@@ -347,20 +347,31 @@ fn unsupported_aggregation_checked_at_planner() {
         match_clauses: vec![
             MatchClause {
                 pattern: Pattern {
-                    head: NodePat { var: Some("a".into()), label: None, properties: vec![] },
+                    head: NodePat {
+                        var: Some("a".into()),
+                        label: None,
+                        properties: vec![],
+                    },
                     segments: vec![],
                 },
             },
             MatchClause {
                 pattern: Pattern {
-                    head: NodePat { var: Some("b".into()), label: None, properties: vec![] },
+                    head: NodePat {
+                        var: Some("b".into()),
+                        label: None,
+                        properties: vec![],
+                    },
                     segments: vec![],
                 },
             },
         ],
         where_clause: None,
         return_clause: ReturnClause {
-            items: vec![ReturnItem { expr: ReturnExpr::Var("a".into()), alias: None }],
+            items: vec![ReturnItem {
+                expr: ReturnExpr::Var("a".into()),
+                alias: None,
+            }],
         },
         order_by: None,
         skip: None,
@@ -437,8 +448,11 @@ fn executor_where_contains_filter() {
 #[test]
 fn executor_expand_calls_edge() {
     let (db, _dir) = make_test_db();
-    let rows =
-        execute(&db, "MATCH (a:Function)-[:CALLS]->(b:Function) RETURN a.fqn, b.fqn").unwrap();
+    let rows = execute(
+        &db,
+        "MATCH (a:Function)-[:CALLS]->(b:Function) RETURN a.fqn, b.fqn",
+    )
+    .unwrap();
     assert_eq!(rows.len(), 2, "expected 2 call edges, got: {rows:?}");
     // Check that main→helper and helper→util are both present.
     let pairs: Vec<(String, String)> = rows
@@ -468,8 +482,7 @@ fn executor_expand_calls_edge() {
 #[test]
 fn executor_order_by_fqn() {
     let (db, _dir) = make_test_db();
-    let rows =
-        execute(&db, "MATCH (n:Function) RETURN n.fqn ORDER BY n.fqn").unwrap();
+    let rows = execute(&db, "MATCH (n:Function) RETURN n.fqn ORDER BY n.fqn").unwrap();
     assert_eq!(rows.len(), 3);
     let fqns: Vec<_> = rows
         .iter()
@@ -486,7 +499,11 @@ fn executor_order_by_fqn() {
 #[test]
 fn executor_limit_and_skip() {
     let (db, _dir) = make_test_db();
-    let rows = execute(&db, "MATCH (n:Function) RETURN n.fqn ORDER BY n.fqn SKIP 1 LIMIT 1").unwrap();
+    let rows = execute(
+        &db,
+        "MATCH (n:Function) RETURN n.fqn ORDER BY n.fqn SKIP 1 LIMIT 1",
+    )
+    .unwrap();
     assert_eq!(rows.len(), 1, "expected exactly 1 row after skip+limit");
 }
 

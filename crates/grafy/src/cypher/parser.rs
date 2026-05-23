@@ -6,8 +6,8 @@
 use tracing::debug;
 
 use crate::cypher::ast::{
-    BinOp, Direction, Expr, Lit, MatchClause, NodePat, OrderBy, OrderItem, Pattern, Query,
-    RelPat, ReturnClause, ReturnExpr, ReturnItem, UnaryOp,
+    BinOp, Direction, Expr, Lit, MatchClause, NodePat, OrderBy, OrderItem, Pattern, Query, RelPat,
+    ReturnClause, ReturnExpr, ReturnItem, UnaryOp,
 };
 use crate::cypher::error::CypherError;
 use crate::cypher::lexer::{tokenize, Spanned, Token};
@@ -47,7 +47,11 @@ struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn new(tokens: &'a [Spanned<Token>], query: &'a str) -> Self {
-        Self { tokens, pos: 0, _query: query }
+        Self {
+            tokens,
+            pos: 0,
+            _query: query,
+        }
     }
 
     fn is_at_end(&self) -> bool {
@@ -98,16 +102,34 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Ok(s)
             }
-            Some(Token::Match) => { self.advance(); Ok("match".into()) }
-            Some(Token::With) => { self.advance(); Ok("with".into()) }
-            Some(Token::In) => { self.advance(); Ok("in".into()) }
-            Some(Token::Asc) => { self.advance(); Ok("ASC".into()) }
-            Some(Token::Desc) => { self.advance(); Ok("DESC".into()) }
+            Some(Token::Match) => {
+                self.advance();
+                Ok("match".into())
+            }
+            Some(Token::With) => {
+                self.advance();
+                Ok("with".into())
+            }
+            Some(Token::In) => {
+                self.advance();
+                Ok("in".into())
+            }
+            Some(Token::Asc) => {
+                self.advance();
+                Ok("ASC".into())
+            }
+            Some(Token::Desc) => {
+                self.advance();
+                Ok("DESC".into())
+            }
             Some(other) => Err(CypherError::parse(
                 format!("expected identifier, got {other:?}"),
                 span,
             )),
-            None => Err(CypherError::parse("expected identifier, got end of query", span)),
+            None => Err(CypherError::parse(
+                "expected identifier, got end of query",
+                span,
+            )),
         }
     }
 
@@ -210,10 +232,7 @@ impl<'a> Parser<'a> {
                 Token::With => {
                     // `WITH` after `STARTS` or `ENDS` is a predicate keyword, not a clause.
                     let prev = if i > 0 { toks.get(i - 1) } else { None };
-                    let is_predicate_with = matches!(
-                        prev,
-                        Some(Token::Starts) | Some(Token::Ends)
-                    );
+                    let is_predicate_with = matches!(prev, Some(Token::Starts) | Some(Token::Ends));
                     if !is_predicate_with {
                         return Err(Unsupported::With.into());
                     }
@@ -281,7 +300,11 @@ impl<'a> Parser<'a> {
             Vec::new()
         };
         self.expect(&Token::RParen)?;
-        Ok(NodePat { var, label, properties })
+        Ok(NodePat {
+            var,
+            label,
+            properties,
+        })
     }
 
     fn try_parse_var(&mut self) -> Option<String> {
@@ -402,7 +425,12 @@ impl<'a> Parser<'a> {
             Direction::LeftToRight => Direction::LeftToRight,
         };
 
-        Ok(RelPat { var, types, direction, properties: props })
+        Ok(RelPat {
+            var,
+            types,
+            direction,
+            properties: props,
+        })
     }
 
     /// Parse `REL_TYPE1|REL_TYPE2|...`
@@ -489,7 +517,11 @@ impl<'a> Parser<'a> {
                 return Err(CypherError::parse("expected WITH after STARTS", span));
             }
             let rhs = self.parse_primary_expr()?;
-            return Ok(Expr::Binary(Box::new(lhs), BinOp::StartsWith, Box::new(rhs)));
+            return Ok(Expr::Binary(
+                Box::new(lhs),
+                BinOp::StartsWith,
+                Box::new(rhs),
+            ));
         }
         if self.eat(&Token::Ends) {
             let span = self.current_span();
@@ -562,12 +594,30 @@ impl<'a> Parser<'a> {
 
     fn try_parse_literal(&mut self) -> Option<Lit> {
         match self.peek_token().cloned() {
-            Some(Token::IntLit(i)) => { self.advance(); Some(Lit::Int(i)) }
-            Some(Token::FloatLit(f)) => { self.advance(); Some(Lit::Float(f)) }
-            Some(Token::StringLit(s)) => { self.advance(); Some(Lit::Str(s)) }
-            Some(Token::True) => { self.advance(); Some(Lit::Bool(true)) }
-            Some(Token::False) => { self.advance(); Some(Lit::Bool(false)) }
-            Some(Token::Null) => { self.advance(); Some(Lit::Null) }
+            Some(Token::IntLit(i)) => {
+                self.advance();
+                Some(Lit::Int(i))
+            }
+            Some(Token::FloatLit(f)) => {
+                self.advance();
+                Some(Lit::Float(f))
+            }
+            Some(Token::StringLit(s)) => {
+                self.advance();
+                Some(Lit::Str(s))
+            }
+            Some(Token::True) => {
+                self.advance();
+                Some(Lit::Bool(true))
+            }
+            Some(Token::False) => {
+                self.advance();
+                Some(Lit::Bool(false))
+            }
+            Some(Token::Null) => {
+                self.advance();
+                Some(Lit::Null)
+            }
             _ => None,
         }
     }
@@ -593,7 +643,10 @@ impl<'a> Parser<'a> {
                 format!("expected integer literal, got {other:?}"),
                 span,
             )),
-            None => Err(CypherError::parse("expected integer literal, got end of query", span)),
+            None => Err(CypherError::parse(
+                "expected integer literal, got end of query",
+                span,
+            )),
         }
     }
 
@@ -638,7 +691,10 @@ impl<'a> Parser<'a> {
                 format!("expected return expression, got {other:?}"),
                 span,
             )),
-            None => Err(CypherError::parse("expected return expression, got end of query", span)),
+            None => Err(CypherError::parse(
+                "expected return expression, got end of query",
+                span,
+            )),
         }
     }
 

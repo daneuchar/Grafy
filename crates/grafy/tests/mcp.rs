@@ -36,10 +36,7 @@ fn tool_names_includes_all_14_canonical_plus_alias() {
         "ingest_traces",
     ];
     for name in EXPECTED {
-        assert!(
-            TOOL_NAMES.contains(name),
-            "TOOL_NAMES is missing '{name}'"
-        );
+        assert!(TOOL_NAMES.contains(name), "TOOL_NAMES is missing '{name}'");
     }
 }
 
@@ -119,7 +116,10 @@ fn smoke_index_produces_readable_store() {
     let tx = db.begin_read().expect("begin read");
     let tbl = tx.open_table(NODES_TABLE).expect("open nodes table");
     let count = tbl.len().expect("table len");
-    assert!(count >= 1, "expected at least 1 node after indexing main.rs");
+    assert!(
+        count >= 1,
+        "expected at least 1 node after indexing main.rs"
+    );
 }
 
 // Test that search_graph returns structured JSON with required keys.

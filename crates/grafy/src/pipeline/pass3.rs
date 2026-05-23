@@ -95,8 +95,7 @@ pub struct SymbolTable {
 impl SymbolTable {
     fn build(events: &[DefinitionEvent], root: &Path) -> Self {
         let mut fqn_to_id: HashMap<String, u64> = HashMap::with_capacity(events.len());
-        let mut short_name_index: HashMap<String, Vec<u64>> =
-            HashMap::with_capacity(events.len());
+        let mut short_name_index: HashMap<String, Vec<u64>> = HashMap::with_capacity(events.len());
         let mut file_defs: HashMap<PathBuf, Vec<(String, u64)>> = HashMap::new();
 
         for ev in events {
@@ -164,9 +163,7 @@ impl SymbolTable {
 
 /// Extract the last segment of a FQN (supports `::`, `.`, `/`, `\` separators).
 pub fn last_segment(fqn: &str) -> &str {
-    fqn.rsplit([':', '.', '/', '\\'])
-        .next()
-        .unwrap_or(fqn)
+    fqn.rsplit([':', '.', '/', '\\']).next().unwrap_or(fqn)
 }
 
 pub fn structure_kind_to_node_kind(k: crate::pipeline::channels::StructureKind) -> NodeKind {
@@ -655,11 +652,7 @@ pub fn run_with_table(
 /// Kept for use in unit tests and contexts where the pipeline doesn't need to
 /// share the symbol table with pass4. The pipeline orchestrator uses
 /// `run_with_table` directly.
-pub fn run(
-    root: &Path,
-    definitions_rx: Receiver<DefinitionEvent>,
-    write_tx: Sender<WriteEvent>,
-) {
+pub fn run(root: &Path, definitions_rx: Receiver<DefinitionEvent>, write_tx: Sender<WriteEvent>) {
     let span = info_span!("pass3.calls.standalone");
     let _e = span.enter();
 
