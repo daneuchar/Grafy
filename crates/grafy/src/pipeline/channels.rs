@@ -102,6 +102,11 @@ pub enum WriteEvent {
     Node(NodeWriteEvent),
     /// Call/import edge — written by pass 3 (W3).
     Edge(EdgeWriteEvent),
+    /// Incremental reindex: sweep all nodes (+ edges) for a file before
+    /// re-emitting fresh ones. Sent by the pipeline before pass 1 processes a
+    /// `Modified` file. The writer performs the deletion atomically in the
+    /// same write transaction as the batch it belongs to.
+    DeleteNodesForFile(String),
     // Legacy variants kept for channel tests; pipeline does not use these.
     Structure(StructureEvent),
     Definition(DefinitionEvent),

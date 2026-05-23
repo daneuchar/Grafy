@@ -25,7 +25,15 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Cmd {
     /// Index a repository and emit Graphviz `.dot` to stdout.
-    Index { path: PathBuf },
+    ///
+    /// By default, unchanged files (blake3 hash match) are skipped for faster
+    /// incremental reindexing. Use `--rebuild` to force a full reindex.
+    Index {
+        path: PathBuf,
+        /// Force a full reindex, ignoring cached hashes.
+        #[arg(long)]
+        rebuild: bool,
+    },
     /// Print per-phase timings and node-kind counts for `path`.
     Diagnose { path: PathBuf },
     /// Execute a read-only Cypher-Lite query against an indexed repository.
@@ -53,7 +61,12 @@ fn init_tracing() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("grafy=info"));
     tracing_subscriber::registry()
         .with(filter)
-        .with(fmt::layer().with_target(true).compact().with_writer(std::io::stderr))
+        .with(
+            fmt::layer()
+                .with_target(true)
+                .compact()
+                .with_writer(std::io::stderr),
+        )
         .init();
 }
 
@@ -69,14 +82,18 @@ fn main() -> Result<()> {
     }
 
     match cli.cmd {
-        Cmd::Index { path } => {
+        Cmd::Index { path, rebuild } => {
             let pipe = Pipeline::new(&path);
-            let report = pipe.index()?;
+            let report = if rebuild {
+                pipe.index_rebuild()?
+            } else {
+                pipe.index()?
+            };
             // Graphviz .dot to stdout.
             println!("{}", to_dot(&report, &path));
             // Summary to stderr (doesn't pollute .dot piped to graphviz).
             eprintln!(
-                "files={} modules={} functions={} classes={} structs={} enums={} traits={} methods={} calls={} routes={}",
+                "files={} modules={} functions={} classes={} structs={} enums={} traits={} methods={} calls={} routes={} unchanged={} modified={} new={} deleted={}",
                 report.files,
                 report.modules,
                 report.functions,
@@ -87,6 +104,10 @@ fn main() -> Result<()> {
                 report.methods,
                 report.calls,
                 report.routes,
+                report.unchanged,
+                report.modified,
+                report.new_files,
+                report.deleted,
             );
         }
         Cmd::Diagnose { path } => {
@@ -135,9 +156,11 @@ fn main() -> Result<()> {
             match grafy::cypher::execute(store.read_db(), &cypher) {
                 Ok(rows) => {
                     for row in rows {
-                        println!("{}", serde_json::to_string(&row).unwrap_or_else(|e| {
-                            format!("{{\"error\": \"{e}\"}}")
-                        }));
+                        println!(
+                            "{}",
+                            serde_json::to_string(&row)
+                                .unwrap_or_else(|e| { format!("{{\"error\": \"{e}\"}}") })
+                        );
                     }
                 }
                 Err(e) => {
@@ -166,7 +189,12 @@ fn main() -> Result<()> {
                         .unwrap_or_else(|_| EnvFilter::new("grafy=info"));
                     tracing_subscriber::registry()
                         .with(filter)
-                        .with(fmt::layer().with_target(true).compact().with_writer(std::io::stderr))
+                        .with(
+                            fmt::layer()
+                                .with_target(true)
+                                .compact()
+                                .with_writer(std::io::stderr),
+                        )
                         .init();
 
                     grafy::mcp::server::serve(root).await

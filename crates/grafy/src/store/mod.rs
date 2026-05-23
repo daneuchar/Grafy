@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::Receiver;
-use redb::{Database, TableDefinition};
+use redb::{Database, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, info_span, warn};
 
@@ -26,6 +26,10 @@ use crate::pipeline::channels::WriteEvent;
 pub const FILES_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("files");
 pub const NODES_TABLE: TableDefinition<u64, &[u8]> = TableDefinition::new("nodes");
 pub const EDGES_TABLE: TableDefinition<(u64, u64, u8), &[u8]> = TableDefinition::new("edges");
+/// Secondary index: (file_rel_path, node_id) → [].
+/// Populated alongside NODES_TABLE; enables O(file-nodes) stale-node sweeps.
+pub const NODES_BY_FILE_TABLE: TableDefinition<(&str, u64), &[u8]> =
+    TableDefinition::new("nodes_by_file");
 
 // ---------------------------------------------------------------------------
 // On-disk record types
@@ -124,6 +128,7 @@ impl Store {
             tx.open_table(FILES_TABLE)?;
             tx.open_table(NODES_TABLE)?;
             tx.open_table(EDGES_TABLE)?;
+            tx.open_table(NODES_BY_FILE_TABLE)?;
             tx.commit()?;
         }
 
@@ -191,6 +196,8 @@ impl Store {
                 nodes_written = stats.nodes_written,
                 files_written = stats.files_written,
                 edges_written = stats.edges_written,
+                nodes_deleted = stats.nodes_deleted,
+                edges_deleted = stats.edges_deleted,
                 "writer finished"
             );
             stats
@@ -213,6 +220,8 @@ pub struct WriterStats {
     pub files_written: u64,
     pub nodes_written: u64,
     pub edges_written: u64,
+    pub nodes_deleted: u64,
+    pub edges_deleted: u64,
 }
 
 // Track unique NodeId counter across writer thread lifecycle.
@@ -256,6 +265,14 @@ fn flush(db: &Database, pending: &mut Vec<WriteEvent>, stats: &mut WriterStats) 
                 return;
             }
         };
+        let mut nbf_tbl = match tx.open_table(NODES_BY_FILE_TABLE) {
+            Ok(t) => t,
+            Err(e) => {
+                warn!(target: "grafy.store", error = %e, "open nodes_by_file table failed");
+                pending.clear();
+                return;
+            }
+        };
 
         for ev in pending.drain(..) {
             match ev {
@@ -284,6 +301,12 @@ fn flush(db: &Database, pending: &mut Vec<WriteEvent>, stats: &mut WriterStats) 
                     if let Err(e) = nodes_tbl.insert(nr.id, encoded.as_slice()) {
                         warn!(target: "grafy.store", error = %e, "insert node record");
                     } else {
+                        // Maintain secondary index: file → node_id.
+                        if let Err(e) =
+                            nbf_tbl.insert((nr.record.file.as_str(), nr.id), [].as_slice())
+                        {
+                            warn!(target: "grafy.store", error = %e, "insert nodes_by_file");
+                        }
                         stats.nodes_written += 1;
                         WRITER_NODE_COUNTER.fetch_add(1, Ordering::Relaxed);
                         debug!(target: "grafy.store", id = nr.id, fqn = %nr.record.fqn, "node written");
@@ -295,6 +318,80 @@ fn flush(db: &Database, pending: &mut Vec<WriteEvent>, stats: &mut WriterStats) 
                     } else {
                         stats.edges_written += 1;
                     }
+                }
+                WriteEvent::DeleteNodesForFile(rel_path) => {
+                    // 1. Collect all node IDs for this file from the secondary index.
+                    let file_str: &str = rel_path.as_str();
+                    // Range: (file, 0) ..= (file, u64::MAX)
+                    let range_start = (file_str, 0u64);
+                    let range_end = (file_str, u64::MAX);
+                    let node_ids: Vec<u64> = match nbf_tbl.range(range_start..=range_end) {
+                        Ok(iter) => iter
+                            .filter_map(|r| r.ok().map(|(k, _)| k.value().1))
+                            .collect(),
+                        Err(e) => {
+                            warn!(target: "grafy.store", error = %e, "range scan nodes_by_file");
+                            continue;
+                        }
+                    };
+
+                    // 2. Delete each node from NODES_TABLE.
+                    for nid in &node_ids {
+                        if let Err(e) = nodes_tbl.remove(*nid) {
+                            warn!(target: "grafy.store", error = %e, "delete node");
+                        } else {
+                            stats.nodes_deleted += 1;
+                        }
+                    }
+
+                    // 3. Delete secondary index entries for this file.
+                    for nid in &node_ids {
+                        if let Err(e) = nbf_tbl.remove((file_str, *nid)) {
+                            warn!(target: "grafy.store", error = %e, "delete nodes_by_file entry");
+                        }
+                    }
+
+                    // 4. Delete edges involving any of the deleted node IDs.
+                    //    We do a full scan of EDGES_TABLE and collect keys to remove.
+                    //    This is O(edges) but edges are typically small; an edge-by-file
+                    //    index is a v1.x optimisation.
+                    if !node_ids.is_empty() {
+                        let id_set: std::collections::HashSet<u64> =
+                            node_ids.iter().copied().collect();
+                        let to_delete: Vec<(u64, u64, u8)> = match edges_tbl.iter() {
+                            Ok(iter) => iter
+                                .filter_map(|r| {
+                                    r.ok().map(|(k, _)| k.value()).filter(|(from, to, _)| {
+                                        id_set.contains(from) || id_set.contains(to)
+                                    })
+                                })
+                                .collect(),
+                            Err(e) => {
+                                warn!(target: "grafy.store", error = %e, "scan edges for deletion");
+                                vec![]
+                            }
+                        };
+                        for key in to_delete {
+                            if let Err(e) = edges_tbl.remove(key) {
+                                warn!(target: "grafy.store", error = %e, "delete edge");
+                            } else {
+                                stats.edges_deleted += 1;
+                            }
+                        }
+                    }
+
+                    // 5. Remove the file record itself so subsequent runs treat the
+                    //    file as New if it gets re-added.
+                    if let Err(e) = files_tbl.remove(file_str) {
+                        warn!(target: "grafy.store", error = %e, "delete file record");
+                    }
+
+                    debug!(
+                        target: "grafy.store",
+                        file = %rel_path,
+                        nodes = node_ids.len(),
+                        "stale nodes swept"
+                    );
                 }
                 // Pass 2 and later phases — not stored this week.
                 WriteEvent::Structure(_)

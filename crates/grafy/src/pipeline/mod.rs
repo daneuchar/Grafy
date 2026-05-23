@@ -4,19 +4,21 @@
 //! 3. calls       — M1 heuristic resolver (W3)
 //! 4. routes      — HTTP route ↔ call-site linking (W4)
 //!
-//! M1 W2: passes 1 + 2 implemented. Channel skeleton for 3 + 4 wired.
+//! M1 W6: incremental reindex via blake3 content hashing.
 
 pub mod channels;
+pub mod incremental;
 pub mod pass1;
 pub mod pass2;
 pub mod pass3;
 pub mod pass4;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crossbeam_channel::bounded;
+use crossbeam_channel::{bounded, unbounded};
 use ignore::WalkBuilder;
+use postcard::from_bytes;
 use redb::ReadableTable;
 use tracing::{info, info_span, warn};
 
@@ -24,9 +26,9 @@ use crate::store::EdgeKind;
 
 use grafy_parser::Language;
 
-use crate::store::{NodeKind, Store, WriterStats};
+use crate::store::{FileRecord, NodeKind, Store, WriterStats, FILES_TABLE};
 
-use channels::{FileWork, CHANNEL_BUFFER};
+use channels::{FileWork, WriteEvent, CHANNEL_BUFFER};
 
 pub struct Pipeline {
     root: PathBuf,
@@ -47,10 +49,23 @@ pub struct IndexReport {
     pub calls: u64,
     /// Number of HTTP route nodes written by pass 4.
     pub routes: u64,
+    // Incremental counts (M1 W6).
+    pub unchanged: u64,
+    pub modified: u64,
+    pub new_files: u64,
+    pub deleted: u64,
 }
 
 impl IndexReport {
-    fn from_counts(counts: &HashMap<u8, u64>, calls: u64, routes: u64) -> Self {
+    fn from_counts(
+        counts: &HashMap<u8, u64>,
+        calls: u64,
+        routes: u64,
+        unchanged: u64,
+        modified: u64,
+        new_files: u64,
+        deleted: u64,
+    ) -> Self {
         Self {
             files: *counts.get(&(NodeKind::File as u8)).unwrap_or(&0),
             modules: *counts.get(&(NodeKind::Module as u8)).unwrap_or(&0),
@@ -62,6 +77,10 @@ impl IndexReport {
             methods: *counts.get(&(NodeKind::Method as u8)).unwrap_or(&0),
             calls,
             routes,
+            unchanged,
+            modified,
+            new_files,
+            deleted,
         }
     }
 
@@ -84,71 +103,71 @@ impl Pipeline {
     }
 
     /// Run all four passes over `self.root`, persist to redb, return counts.
+    ///
+    /// This is now a thin wrapper around `index_incremental` with
+    /// `rebuild = false`. Pass `rebuild = true` to skip the unchanged check
+    /// (full reindex).
     pub fn index(&self) -> anyhow::Result<IndexReport> {
-        let span = info_span!("pipeline.index", root = %self.root.display());
+        self.index_incremental(false)
+    }
+
+    /// Full reindex — ignores previous hashes and reindexes every file.
+    pub fn index_rebuild(&self) -> anyhow::Result<IndexReport> {
+        self.index_incremental(true)
+    }
+
+    /// Incremental reindex. When `rebuild` is `false`, unchanged files are
+    /// detected by blake3 hash comparison and skipped. When `rebuild` is
+    /// `true`, all files are processed regardless of hash (same as a cold
+    /// index).
+    ///
+    /// # Algorithm
+    ///
+    /// 1. Walk all files; classify each as `New | Unchanged | Modified`.
+    /// 2. For `Unchanged` files: skip parse entirely; keep existing nodes.
+    /// 3. For `Modified` or deleted files: send `DeleteNodesForFile` before
+    ///    re-emitting nodes (stale-node sweep).
+    /// 4. For `New` or `Modified` files: run full pass 1–4.
+    /// 5. For files present in the store but absent from the walk (deleted):
+    ///    send `DeleteNodesForFile`.
+    pub fn index_incremental(&self, rebuild: bool) -> anyhow::Result<IndexReport> {
+        let span = info_span!("pipeline.index_incremental", root = %self.root.display(), rebuild);
         let _e = span.enter();
 
-        // Open (or create) the store.
+        // ------------------------------------------------------------------
+        // Open store once — held for the full pipeline lifetime.
+        // Plan §8 W2: eliminates the double-open / re-open for count phase.
+        // ------------------------------------------------------------------
         let store = Store::open(&self.root)?;
 
-        // ----------------------------------------------------------------
-        // Channel topology:
-        //
-        //   walk ──files──► pass1 ──structure──► pass2 ──definitions──► drain
-        //   pass1 ──write_tx──► writer
-        //   pass2 ──write_tx──► writer
-        //
-        //   Barrier: drain thread collects all DefinitionEvents, then the
-        //   pipeline builds the SymbolTable and runs pass3 + pass4 in
-        //   parallel scoped threads sharing &SymbolTable.
-        //
-        //   pass3 ──write_tx_p3──► writer
-        //   pass4 ──write_tx_p4──► writer
-        // ----------------------------------------------------------------
+        // ------------------------------------------------------------------
+        // Load previous file records for incremental classification.
+        // ------------------------------------------------------------------
+        let prev_records: HashMap<String, FileRecord> = if rebuild {
+            HashMap::new()
+        } else {
+            load_file_records(&store)?
+        };
 
-        // Walk → pass 1.
-        let (files_tx, files_rx) = bounded::<FileWork>(CHANNEL_BUFFER);
+        // ------------------------------------------------------------------
+        // Walk and classify files.
+        // ------------------------------------------------------------------
+        let mut new_count: u64 = 0;
+        let mut unchanged_count: u64 = 0;
+        let mut modified_count: u64 = 0;
 
-        // Pass 1 → pass 2.
-        let (structure_tx, structure_rx) = bounded::<channels::StructureEvent>(CHANNEL_BUFFER);
+        // Files seen during this walk (rel-paths).
+        let mut seen_files: HashSet<String> = HashSet::new();
 
-        // Pass 2 → drain thread. Drain collects all events; its channel closes
-        // when pass 2 drops definitions_tx.
-        let (definitions_tx, definitions_rx) =
-            bounded::<channels::DefinitionEvent>(CHANNEL_BUFFER);
+        // Work items for pass 1 (New + Modified only).
+        let mut work_items: Vec<FileWork> = Vec::new();
+        // Rel-paths of files to sweep before re-indexing.
+        let mut to_sweep: Vec<String> = Vec::new();
 
-        // Pass 1 + 2 + 3 + 4 → store writer.
-        let (write_tx, write_rx) = bounded::<channels::WriteEvent>(CHANNEL_BUFFER);
-
-        // Spawn writer thread first.
-        let writer_handle = store.writer(write_rx);
-
-        // Clone write senders for pass 2, pass 3, pass 4 before moving into threads.
-        let write_tx_p2 = write_tx.clone();
-        let write_tx_p3 = write_tx.clone();
-        let write_tx_p4 = write_tx.clone();
-
-        let root_p1 = self.root.clone();
-        let root_p2 = self.root.clone();
-
-        // Spawn pass 2.
-        // When pass 2 finishes, definitions_tx drops → definitions channel closes.
-        let p2_handle = std::thread::spawn(move || {
-            pass2::run(&root_p2, structure_rx, definitions_tx, write_tx_p2);
-        });
-
-        // Spawn pass 1.
-        // When pass 1 finishes it drops structure_tx → pass 2 sees channel close.
-        let p1_handle = std::thread::spawn(move || {
-            pass1::run(&root_p1, files_rx, structure_tx, write_tx);
-        });
-
-        // Walk on the current thread; drop files_tx when done.
         {
             let span = info_span!("pipeline.walk");
             let _e = span.enter();
             let mut files_seen = 0usize;
-            let mut files_sent = 0usize;
 
             for result in WalkBuilder::new(&self.root).standard_filters(true).build() {
                 let entry = match result {
@@ -169,23 +188,143 @@ impl Pipeline {
                 let Some(lang) = Language::from_extension(ext) else {
                     continue;
                 };
-                if files_tx
-                    .send(FileWork {
-                        path,
-                        language: lang,
-                    })
-                    .is_err()
-                {
+
+                let rel_path = path
+                    .strip_prefix(&self.root)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .into_owned();
+
+                seen_files.insert(rel_path.clone());
+
+                let prev = prev_records.get(&rel_path);
+                let status = incremental::classify(prev, &path);
+
+                match status {
+                    incremental::FileStatus::Unchanged => {
+                        unchanged_count += 1;
+                        // Skip — keep existing store data.
+                    }
+                    incremental::FileStatus::New => {
+                        new_count += 1;
+                        work_items.push(FileWork {
+                            path,
+                            language: lang,
+                        });
+                    }
+                    incremental::FileStatus::Modified => {
+                        modified_count += 1;
+                        to_sweep.push(rel_path);
+                        work_items.push(FileWork {
+                            path,
+                            language: lang,
+                        });
+                    }
+                }
+            }
+            info!(
+                target: "grafy.pipeline",
+                files_seen,
+                new = new_count,
+                unchanged = unchanged_count,
+                modified = modified_count,
+                "walk + classify complete"
+            );
+        }
+
+        // ------------------------------------------------------------------
+        // Deleted files: present in previous store but not seen in this walk.
+        // ------------------------------------------------------------------
+        let deleted_count = prev_records
+            .keys()
+            .filter(|k| !seen_files.contains(*k))
+            .count() as u64;
+        let deleted_paths: Vec<String> = prev_records
+            .keys()
+            .filter(|k| !seen_files.contains(*k))
+            .cloned()
+            .collect();
+
+        info!(
+            target: "grafy.pipeline",
+            unchanged = unchanged_count,
+            modified = modified_count,
+            new = new_count,
+            deleted = deleted_count,
+            "incremental classification"
+        );
+
+        // If nothing changed and nothing deleted, fast-path: just tally and return.
+        if work_items.is_empty() && deleted_paths.is_empty() && to_sweep.is_empty() {
+            let report = count_nodes_from_store_db(store.read_db(), unchanged_count, 0, 0, 0)?;
+            info!(
+                target: "grafy.pipeline",
+                unchanged = report.unchanged,
+                "fast-path: nothing changed"
+            );
+            return Ok(report);
+        }
+
+        // ------------------------------------------------------------------
+        // Channel topology (same as full index, but only changed files flow
+        // through pass 1; passes 3 + 4 operate on all definitions).
+        // ------------------------------------------------------------------
+        let (files_tx, files_rx) = bounded::<FileWork>(CHANNEL_BUFFER);
+        // structure_tx and definitions_tx use unbounded channels: the main
+        // thread cannot drain definitions_rx until after p1 + p2 join, so a
+        // bounded channel here causes a deadlock when the repo emits more
+        // definition events than the buffer capacity (plan §8 W6 fix).
+        let (structure_tx, structure_rx) = unbounded::<channels::StructureEvent>();
+        let (definitions_tx, definitions_rx) = unbounded::<channels::DefinitionEvent>();
+        let (write_tx, write_rx) = bounded::<WriteEvent>(CHANNEL_BUFFER);
+
+        // Spawn writer thread.
+        let writer_handle = store.writer(write_rx);
+
+        // ------------------------------------------------------------------
+        // Send sweep events BEFORE pass 1 starts consuming work.
+        // The writer processes them in batch order, so deletions land before
+        // fresh inserts for Modified files.
+        // ------------------------------------------------------------------
+        for rel_path in to_sweep {
+            let _ = write_tx.send(WriteEvent::DeleteNodesForFile(rel_path));
+        }
+        for rel_path in deleted_paths {
+            let _ = write_tx.send(WriteEvent::DeleteNodesForFile(rel_path));
+        }
+
+        let write_tx_p2 = write_tx.clone();
+        let write_tx_p3 = write_tx.clone();
+        let write_tx_p4 = write_tx.clone();
+
+        let root_p1 = self.root.clone();
+        let root_p2 = self.root.clone();
+
+        // Spawn pass 2.
+        let p2_handle = std::thread::spawn(move || {
+            pass2::run(&root_p2, structure_rx, definitions_tx, write_tx_p2);
+        });
+
+        // Spawn pass 1.
+        let p1_handle = std::thread::spawn(move || {
+            pass1::run(&root_p1, files_rx, structure_tx, write_tx);
+        });
+
+        // Feed work items into pass 1.
+        {
+            let span = info_span!("pipeline.feed_work");
+            let _e = span.enter();
+            let total = work_items.len();
+            for fw in work_items {
+                if files_tx.send(fw).is_err() {
                     warn!(target: "grafy.pipeline", "pass1 receiver dropped early");
                     break;
                 }
-                files_sent += 1;
             }
-            info!(target: "grafy.pipeline", files_seen, files_sent, "walk complete");
+            info!(target: "grafy.pipeline", sent = total, "work items fed");
             drop(files_tx);
         }
 
-        // Join pass 1 and 2.
         if let Err(e) = p1_handle.join() {
             warn!(target: "grafy.pipeline", "pass1 thread panicked: {:?}", e);
         }
@@ -193,11 +332,9 @@ impl Pipeline {
             warn!(target: "grafy.pipeline", "pass2 thread panicked: {:?}", e);
         }
 
-        // ----------------------------------------------------------------
-        // Option-a barrier: drain the definitions channel (now closed since
-        // pass2 dropped definitions_tx), build the shared SymbolTable, then
-        // run pass3 and pass4 in parallel sharing &SymbolTable.
-        // ----------------------------------------------------------------
+        // ------------------------------------------------------------------
+        // Barrier: build SymbolTable from definitions, run pass3 + pass4.
+        // ------------------------------------------------------------------
         let events: Vec<channels::DefinitionEvent> = definitions_rx.into_iter().collect();
         tracing::info!(
             target: "grafy.pipeline",
@@ -212,7 +349,6 @@ impl Pipeline {
         let files_ref = &files;
         let sym_ref = &sym;
 
-        // Run pass3 and pass4 in parallel scoped threads sharing &SymbolTable.
         std::thread::scope(|s| {
             let p3 = s.spawn(|| {
                 pass3::run_with_table(root_ref, files_ref, sym_ref, write_tx_p3);
@@ -228,7 +364,7 @@ impl Pipeline {
             }
         });
 
-        // All senders dropped → writer thread drains and exits.
+        // All senders dropped → writer drains and exits.
         let stats = match writer_handle.join() {
             Ok(s) => s,
             Err(e) => {
@@ -237,8 +373,20 @@ impl Pipeline {
             }
         };
 
-        // Re-open the store (read-only) to tally nodes by kind.
-        let report = count_nodes_from_store(&self.root)?;
+        // ------------------------------------------------------------------
+        // Re-open store for read-only count (uses the same db path, but redb
+        // requires a new read transaction after the writer has committed).
+        // Plan §8 fix: we pass the already-opened Store::read_db() handle.
+        // ------------------------------------------------------------------
+        // Re-open to get a fresh read view after writes committed.
+        let store2 = Store::open(&self.root)?;
+        let report = count_nodes_from_store_db(
+            store2.read_db(),
+            unchanged_count,
+            modified_count,
+            new_count,
+            deleted_count,
+        )?;
 
         info!(
             target: "grafy.pipeline",
@@ -252,8 +400,14 @@ impl Pipeline {
             methods = report.methods,
             calls = report.calls,
             routes = report.routes,
+            unchanged = report.unchanged,
+            modified = report.modified,
+            new_files = report.new_files,
+            deleted = report.deleted,
             writer_nodes = stats.nodes_written,
             writer_edges = stats.edges_written,
+            writer_nodes_deleted = stats.nodes_deleted,
+            writer_edges_deleted = stats.edges_deleted,
             "index complete"
         );
 
@@ -261,13 +415,32 @@ impl Pipeline {
     }
 }
 
-/// Read the `nodes` and `edges` tables from the store and tally counts.
-fn count_nodes_from_store(root: &Path) -> anyhow::Result<IndexReport> {
-    use crate::store::{NodeRecord, EDGES_TABLE, NODES_TABLE};
-    use postcard::from_bytes;
-
-    let store = Store::open(root)?;
+/// Load all `FileRecord`s from the `files` table of an open store.
+fn load_file_records(store: &Store) -> anyhow::Result<HashMap<String, FileRecord>> {
     let db = store.read_db();
+    let tx = db.begin_read()?;
+    let tbl = tx.open_table(FILES_TABLE)?;
+    let mut map = HashMap::new();
+    for item in tbl.iter()? {
+        let (key, val) = item?;
+        if let Ok(rec) = from_bytes::<FileRecord>(val.value()) {
+            map.insert(key.value().to_owned(), rec);
+        }
+    }
+    Ok(map)
+}
+
+/// Read the `nodes` and `edges` tables from a redb `Database` and tally counts.
+/// Takes the `Database` reference directly to avoid a second `Store::open`.
+fn count_nodes_from_store_db(
+    db: &redb::Database,
+    unchanged: u64,
+    modified: u64,
+    new_files: u64,
+    deleted: u64,
+) -> anyhow::Result<IndexReport> {
+    use crate::store::{NodeRecord, EDGES_TABLE, NODES_TABLE};
+
     let tx = db.begin_read()?;
 
     // Node counts by kind.
@@ -291,10 +464,11 @@ fn count_nodes_from_store(root: &Path) -> anyhow::Result<IndexReport> {
         }
     }
 
-    // Route node count (NodeKind::Route = 8).
     let routes = *counts.get(&(NodeKind::Route as u8)).unwrap_or(&0);
 
-    Ok(IndexReport::from_counts(&counts, calls, routes))
+    Ok(IndexReport::from_counts(
+        &counts, calls, routes, unchanged, modified, new_files, deleted,
+    ))
 }
 
 /// Emit a minimal Graphviz `.dot` representation.
