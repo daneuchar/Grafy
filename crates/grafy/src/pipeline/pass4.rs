@@ -25,6 +25,7 @@
 //! are emitted; no direct redb access.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 
 use crossbeam_channel::Sender;
@@ -34,6 +35,7 @@ use tree_sitter::{Query, QueryCursor};
 
 use grafy_parser::{Language, PER_FILE_TIMEOUT};
 
+use crate::pipeline::cache::ParseCache;
 use crate::pipeline::channels::{EdgeWriteEvent, NodeWriteEvent, WriteEvent};
 use crate::pipeline::pass3::{build_symbol_table, ts_language_for, SymbolTable};
 use crate::routes::{detect_framework, routes_scm, Framework};
@@ -186,24 +188,47 @@ fn process_file(
     root: &Path,
     lang: Language,
     sym: &SymbolTable,
+    cache: &ParseCache,
 ) -> Vec<WriteEvent> {
     let started = Instant::now();
 
-    let bytes = match std::fs::read(file_path) {
-        Ok(b) => b,
-        Err(e) => {
-            warn!(
-                target: "grafy.pass4",
-                file = %file_path.display(),
-                language = lang.as_str(),
-                "read failed — check file permissions. ({})", e
-            );
-            return vec![];
-        }
+    // --- Obtain bytes + tree: prefer cache, fall back to fresh read + parse. ---
+    let cached = cache.get(file_path).map(|r| Arc::clone(&*r));
+
+    let (bytes_owned, tree_owned);
+    let (bytes, tree): (&[u8], &tree_sitter::Tree) = if let Some(ref pf) = cached {
+        (&pf.source, &pf.tree)
+    } else {
+        bytes_owned = match std::fs::read(file_path) {
+            Ok(b) => b,
+            Err(e) => {
+                warn!(
+                    target: "grafy.pass4",
+                    file = %file_path.display(),
+                    language = lang.as_str(),
+                    "read failed — check file permissions. ({})", e
+                );
+                return vec![];
+            }
+        };
+        tree_owned = match grafy_parser::parse(&file_path.display().to_string(), lang, &bytes_owned)
+        {
+            Ok(t) => t,
+            Err(e) => {
+                warn!(
+                    target: "grafy.pass4",
+                    file = %file_path.display(),
+                    language = lang.as_str(),
+                    "reparse failed — verify valid {} source. ({})", lang.as_str(), e
+                );
+                return vec![];
+            }
+        };
+        (&bytes_owned, &tree_owned)
     };
 
     // Framework detection: cheap lexical scan.
-    let fw = match detect_framework(lang, file_path, &bytes) {
+    let fw = match detect_framework(lang, file_path, bytes) {
         Some(fw) => fw,
         None => return vec![],
     };
@@ -213,12 +238,12 @@ fn process_file(
             target: "grafy.pass4",
             file = %file_path.display(),
             framework = ?fw,
-            "per-file timeout exceeded before parse — skipping routes. Split the file or open an issue."
+            "per-file timeout exceeded before query extraction — skipping routes. Split the file or open an issue."
         );
         return vec![];
     }
 
-    let source_str = match std::str::from_utf8(&bytes) {
+    let source_str = match std::str::from_utf8(bytes) {
         Ok(s) => s,
         Err(_) => {
             warn!(
@@ -231,30 +256,17 @@ fn process_file(
         }
     };
 
-    let tree = match grafy_parser::parse(&file_path.display().to_string(), lang, &bytes) {
-        Ok(t) => t,
-        Err(e) => {
-            warn!(
-                target: "grafy.pass4",
-                file = %file_path.display(),
-                framework = ?fw,
-                "reparse failed — verify valid {} source. ({})", lang.as_str(), e
-            );
-            return vec![];
-        }
-    };
-
     if started.elapsed() > PER_FILE_TIMEOUT {
         warn!(
             target: "grafy.pass4",
             file = %file_path.display(),
             framework = ?fw,
-            "per-file timeout exceeded during reparse — skipping routes. Split the file or open an issue."
+            "per-file timeout exceeded during query extraction — skipping routes. Split the file or open an issue."
         );
         return vec![];
     }
 
-    let route_matches = extract_routes(&bytes, source_str, &tree, fw, lang);
+    let route_matches = extract_routes(bytes, source_str, tree, fw, lang);
 
     if route_matches.is_empty() {
         return vec![];
@@ -332,11 +344,14 @@ fn process_file(
 /// Called from the pipeline orchestrator after pass3 shares the symbol table.
 /// Emits `WriteEvent::Node` (Route) and `WriteEvent::Edge` (Routes) entries
 /// via `write_tx`.
+/// `cache` provides pre-parsed trees from pass 1 so pass 4 avoids re-reading
+/// and re-parsing each file (W6.5 fix).
 pub fn run_with_table(
     root: &Path,
     files: &[(PathBuf, Language)],
     sym: &SymbolTable,
     write_tx: Sender<WriteEvent>,
+    cache: &ParseCache,
 ) {
     let span = info_span!("pass4.routes");
     let _e = span.enter();
@@ -350,7 +365,7 @@ pub fn run_with_table(
     // Parallel route extraction via rayon.
     let all_events: Vec<WriteEvent> = files
         .par_iter()
-        .flat_map(|(path, lang)| process_file(path, root, *lang, sym))
+        .flat_map(|(path, lang)| process_file(path, root, *lang, sym, cache))
         .collect();
 
     let node_count = all_events
@@ -383,7 +398,9 @@ pub fn run(
     write_tx: Sender<WriteEvent>,
 ) {
     let sym = build_symbol_table(definitions, root);
-    run_with_table(root, files, &sym, write_tx);
+    // No cache in standalone mode — each file falls back to fresh read + parse.
+    let empty_cache = ParseCache::new();
+    run_with_table(root, files, &sym, write_tx, &empty_cache);
 }
 
 // ---------------------------------------------------------------------------

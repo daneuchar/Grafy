@@ -5,9 +5,13 @@
 //!   - `WriteEvent::File`      → store (file metadata)
 //!   - `StructureEvent`        → pass 2 (one per captured definition)
 //!
+//! As a side-effect, inserts `Arc<ParsedFile>` into the shared `ParseCache`
+//! so passes 3 and 4 can reuse parse trees without re-reading from disk.
+//!
 //! All parsing runs on a rayon thread pool. No `Node<'_>` leaves this module.
 //! Errors are logged with file + language + next-step action; never panicked.
 
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use crossbeam_channel::{Receiver, Sender};
@@ -18,6 +22,7 @@ use tree_sitter::{Query, QueryCursor};
 use grafy_parser::{parse, Language};
 
 use crate::lang::definitions_scm;
+use crate::pipeline::cache::{CacheBudget, ParseCache, ParsedFile};
 use crate::pipeline::channels::{
     FileWork, FileWriteEvent, NodeWriteEvent, StructureEvent, StructureKind, WriteEvent,
 };
@@ -61,11 +66,14 @@ pub fn structure_to_node_kind(k: StructureKind) -> NodeKind {
 /// `files_rx` is the incoming work channel.
 /// `structure_tx` feeds pass 2.
 /// `write_tx` feeds the store writer thread.
+/// `cache` + `budget` are populated here and consumed by pass 3 / pass 4.
 pub fn run(
     root: &std::path::Path,
     files_rx: Receiver<FileWork>,
     structure_tx: Sender<StructureEvent>,
     write_tx: Sender<WriteEvent>,
+    cache: &ParseCache,
+    budget: &CacheBudget,
 ) {
     let span = info_span!("pass1.structure");
     let _e = span.enter();
@@ -74,7 +82,15 @@ pub fn run(
     let work: Vec<FileWork> = files_rx.into_iter().collect();
 
     work.into_par_iter().for_each(|fw| {
-        process_file(root, &fw.path, fw.language, &structure_tx, &write_tx);
+        process_file(
+            root,
+            &fw.path,
+            fw.language,
+            &structure_tx,
+            &write_tx,
+            cache,
+            budget,
+        );
     });
 }
 
@@ -84,6 +100,8 @@ fn process_file(
     lang: Language,
     structure_tx: &Sender<StructureEvent>,
     write_tx: &Sender<WriteEvent>,
+    cache: &ParseCache,
+    budget: &CacheBudget,
 ) {
     // Read bytes.
     let bytes = match std::fs::read(path) {
@@ -99,6 +117,10 @@ fn process_file(
             return;
         }
     };
+
+    // Wrap bytes in Arc early so we can share ownership with the parse cache
+    // without copying.
+    let bytes: Arc<[u8]> = bytes.into();
 
     // Hash + mtime for file record.
     let blake3_hash = {
@@ -159,6 +181,20 @@ fn process_file(
         }
     };
 
+    // Insert into parse cache if the budget allows. We clone the tree
+    // (a tree_sitter::Tree clone is cheap — it clones an Arc<[Node]>
+    // internally) and share the source bytes via Arc<[u8]>.
+    if budget.try_reserve(bytes.len() as u64) {
+        cache.insert(
+            path.to_path_buf(),
+            Arc::new(ParsedFile {
+                tree: tree.clone(),
+                source: Arc::clone(&bytes),
+                lang,
+            }),
+        );
+    }
+
     // Build query.
     let scm = definitions_scm(lang);
     let ts_lang = ts_language_for(lang);
@@ -202,7 +238,7 @@ fn process_file(
     let mut cursor = QueryCursor::new();
     let root_node = tree.root_node();
 
-    for m in cursor.matches(&query, root_node, bytes.as_slice()) {
+    for m in cursor.matches(&query, root_node, &bytes[..]) {
         // Find the .def capture and the .name capture in this match.
         let mut def_kind: Option<StructureKind> = None;
         let mut def_byte_start: usize = 0;
@@ -285,8 +321,10 @@ mod tests {
         drop(files_tx);
 
         let root = dir.path().to_path_buf();
+        let cache = Arc::new(ParseCache::new());
+        let budget = Arc::new(CacheBudget::new());
         let handle = std::thread::spawn(move || {
-            run(&root, files_rx, structure_tx, write_tx);
+            run(&root, files_rx, structure_tx, write_tx, &cache, &budget);
         });
 
         let events: Vec<_> = structure_rx.iter().collect();
@@ -302,8 +340,18 @@ mod tests {
 
         let (structure_tx, structure_rx) = bounded(1024);
         let (write_tx, _write_rx) = bounded(1024);
+        let cache = ParseCache::new();
+        let budget = CacheBudget::new();
 
-        process_file(dir.path(), &path, Language::Rust, &structure_tx, &write_tx);
+        process_file(
+            dir.path(),
+            &path,
+            Language::Rust,
+            &structure_tx,
+            &write_tx,
+            &cache,
+            &budget,
+        );
         drop(structure_tx);
 
         let events: Vec<_> = structure_rx.iter().collect();
@@ -329,6 +377,8 @@ mod tests {
 
         let (structure_tx, structure_rx) = bounded(1024);
         let (write_tx, _write_rx) = bounded(1024);
+        let cache = ParseCache::new();
+        let budget = CacheBudget::new();
 
         process_file(
             dir.path(),
@@ -336,6 +386,8 @@ mod tests {
             Language::Python,
             &structure_tx,
             &write_tx,
+            &cache,
+            &budget,
         );
         drop(structure_tx);
 

@@ -1,4 +1,4 @@
-//! Pass 3 — heuristic call resolver (M1 W3).
+//! Pass 3 — heuristic call resolver (M1 W3 + W6.5).
 //!
 //! Strategy (spec: `docs/m1-call-resolver.md`):
 //!
@@ -8,9 +8,15 @@
 //!   - `short_name_index: HashMap<String, Vec<NodeId>>` keyed by the last
 //!     segment of each FQN (for import resolution)
 //!   - `file_defs: HashMap<PathBuf, Vec<(String, u64)>>` per-file (fqn, id) pairs
+//!   - `defs_by_range: HashMap<PathBuf, Vec<(u32, u32, u64)>>` per-file sorted
+//!     list of `(byte_start, byte_end, node_id)` — used for the W6.5
+//!     enclosing-function lookup.
 //!
-//! **Phase 2 (resolve):** For every file, reparse it (W3 cost; W6 will cache),
-//! run `calls.scm` and `imports.scm`, resolve each call site, emit edges.
+//! **Phase 2 (resolve):** For every file, run `calls.scm` and `imports.scm`
+//! using the parse tree from the shared `ParseCache` (populated by pass 1,
+//! eliminating the W3 re-read + re-parse). Attribute each call site to its
+//! enclosing function/method via a parent-node walk (W6.5 fix for the W3
+//! fan-out overshoot).
 //!
 //! **Orchestration choice (option a):** Drain `definitions_rx` to a `Vec`
 //! first (channel closes when pass 2 drops `definitions_tx`), build the
@@ -31,6 +37,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 
 use crossbeam_channel::{Receiver, Sender};
@@ -41,6 +48,7 @@ use tree_sitter::{Query, QueryCursor};
 use grafy_parser::{Language, PER_FILE_TIMEOUT};
 
 use crate::lang::{calls_scm, imports_scm};
+use crate::pipeline::cache::ParseCache;
 use crate::pipeline::channels::{DefinitionEvent, EdgeWriteEvent, WriteEvent};
 use crate::store::{node_id, EdgeKind, NodeKind};
 
@@ -90,6 +98,11 @@ pub struct SymbolTable {
     pub short_name_index: HashMap<String, Vec<u64>>,
     /// File path → list of (fqn, node_id) definitions in that file.
     pub file_defs: HashMap<PathBuf, Vec<(String, u64)>>,
+    /// File path → sorted list of `(byte_start, byte_end, node_id)` for
+    /// the W6.5 enclosing-function lookup (parent-node walk).
+    /// Sorted ascending by `byte_start` so we can scan to find the tightest
+    /// enclosing definition for any given call-site byte offset.
+    pub defs_by_range: HashMap<PathBuf, Vec<(u32, u32, u64)>>,
 }
 
 impl SymbolTable {
@@ -97,6 +110,7 @@ impl SymbolTable {
         let mut fqn_to_id: HashMap<String, u64> = HashMap::with_capacity(events.len());
         let mut short_name_index: HashMap<String, Vec<u64>> = HashMap::with_capacity(events.len());
         let mut file_defs: HashMap<PathBuf, Vec<(String, u64)>> = HashMap::new();
+        let mut defs_by_range: HashMap<PathBuf, Vec<(u32, u32, u64)>> = HashMap::new();
 
         for ev in events {
             let rel_path = ev
@@ -118,13 +132,46 @@ impl SymbolTable {
                 .entry(ev.file_path.clone())
                 .or_default()
                 .push((ev.fqn.clone(), id));
+
+            defs_by_range
+                .entry(ev.file_path.clone())
+                .or_default()
+                .push((ev.byte_start as u32, ev.byte_end as u32, id));
+        }
+
+        // Sort each file's range list by byte_start for deterministic lookup.
+        for ranges in defs_by_range.values_mut() {
+            ranges.sort_unstable_by_key(|(start, _, _)| *start);
         }
 
         Self {
             fqn_to_id,
             short_name_index,
             file_defs,
+            defs_by_range,
         }
+    }
+
+    /// Find the tightest enclosing definition for a call-site byte offset.
+    ///
+    /// Returns the NodeId of the smallest definition range that contains
+    /// `call_byte_start`, i.e. the innermost function/method the call lives in.
+    /// Returns `None` if no definition contains the offset (module-level call).
+    pub fn enclosing_def(&self, file_path: &Path, call_byte_start: u32) -> Option<u64> {
+        let ranges = self.defs_by_range.get(file_path)?;
+
+        // Find the tightest (smallest) range that contains call_byte_start.
+        // "Tightest" = smallest (byte_end - byte_start) among all candidates.
+        let mut best: Option<(u32, u64)> = None; // (span_size, node_id)
+        for &(start, end, id) in ranges {
+            if start <= call_byte_start && call_byte_start < end {
+                let span = end - start;
+                if best.is_none() || span < best.unwrap().0 {
+                    best = Some((span, id));
+                }
+            }
+        }
+        best.map(|(_, id)| id)
     }
 
     /// Resolve by short name: same-file definitions first, then any in the index.
@@ -209,6 +256,62 @@ pub fn strip_quotes(s: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Per-language enclosing-definition node kinds (W6.5)
+// ---------------------------------------------------------------------------
+
+/// Node kinds that represent function/method bodies for each language.
+///
+/// When walking up the tree from a call-site node, the first ancestor whose
+/// `kind()` is in this set is the "enclosing definition." If no such ancestor
+/// exists, the call is at module level and should be attributed to the
+/// enclosing File/Module node.
+#[must_use]
+pub fn enclosing_def_kinds(lang: Language) -> &'static [&'static str] {
+    match lang {
+        Language::Rust => &["function_item", "closure_expression"],
+        Language::Python => &["function_definition", "lambda"],
+        Language::JavaScript | Language::Tsx => &[
+            "function_declaration",
+            "function_expression",
+            "method_definition",
+            "arrow_function",
+            "function",
+        ],
+        Language::TypeScript => &[
+            "function_declaration",
+            "function_expression",
+            "method_definition",
+            "arrow_function",
+            "function",
+        ],
+        Language::Go => &["function_declaration", "method_declaration", "func_literal"],
+        Language::Java => &[
+            "method_declaration",
+            "constructor_declaration",
+            "lambda_expression",
+        ],
+        Language::Cpp => &[
+            "function_definition",
+            "function_declarator",
+            "lambda_expression",
+        ],
+        Language::CSharp => &[
+            "method_declaration",
+            "constructor_declaration",
+            "lambda_expression",
+        ],
+        Language::Php => &[
+            "function_definition",
+            "method_declaration",
+            "anonymous_function_creation_expression",
+            "arrow_function",
+        ],
+        Language::Scala => &["function_definition", "function_declaration"],
+        Language::Lua => &["function_declaration", "function_definition"],
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Call-site and import extraction via tree-sitter queries
 // ---------------------------------------------------------------------------
 
@@ -216,6 +319,8 @@ pub fn strip_quotes(s: &str) -> String {
 struct CallSite {
     name: String,
     receiver: Option<String>,
+    /// Byte offset of the call-site node. Used for the enclosing-def lookup.
+    byte_start: u32,
 }
 
 #[derive(Debug)]
@@ -257,6 +362,7 @@ fn extract_call_sites(
     for m in cursor.matches(&query, tree.root_node(), bytes) {
         let mut call_name: Option<String> = None;
         let mut call_receiver: Option<String> = None;
+        let mut call_byte_start: u32 = 0;
 
         for cap in m.captures {
             let cap_name = capture_names[cap.index as usize].as_str();
@@ -265,7 +371,10 @@ fn extract_call_sites(
             }
             let text = &source_str[cap.node.start_byte()..cap.node.end_byte()];
             match cap_name {
-                "call.name" => call_name = Some(text.to_owned()),
+                "call.name" => {
+                    call_byte_start = cap.node.start_byte() as u32;
+                    call_name = Some(text.to_owned());
+                }
                 "call.receiver" => call_receiver = Some(text.to_owned()),
                 _ => {}
             }
@@ -275,6 +384,7 @@ fn extract_call_sites(
             sites.push(CallSite {
                 name,
                 receiver: call_receiver,
+                byte_start: call_byte_start,
             });
         }
     }
@@ -466,23 +576,49 @@ fn resolve_file(
     root: &Path,
     lang: Language,
     sym: &SymbolTable,
+    cache: &ParseCache,
 ) -> Vec<EdgeWriteEvent> {
     let started = Instant::now();
 
-    let bytes = match std::fs::read(file_path) {
-        Ok(b) => b,
-        Err(e) => {
-            warn!(
-                target: "grafy.pass3",
-                file = %file_path.display(),
-                language = lang.as_str(),
-                "read failed — check file permissions. ({})", e
-            );
-            return vec![];
-        }
+    // --- Obtain bytes + tree: prefer cache, fall back to fresh read + parse. ---
+    let cached = cache.get(file_path).map(|r| Arc::clone(&*r));
+
+    let (bytes_owned, tree_owned);
+    let (bytes, tree): (&[u8], &tree_sitter::Tree) = if let Some(ref pf) = cached {
+        // Cache hit: use the pre-parsed tree and source bytes.
+        (&pf.source, &pf.tree)
+    } else {
+        // Cache miss (budget exhaustion or file not in this pass's work set).
+        // Fall back to read + parse.
+        bytes_owned = match std::fs::read(file_path) {
+            Ok(b) => b,
+            Err(e) => {
+                warn!(
+                    target: "grafy.pass3",
+                    file = %file_path.display(),
+                    language = lang.as_str(),
+                    "read failed — check file permissions. ({})", e
+                );
+                return vec![];
+            }
+        };
+        tree_owned = match grafy_parser::parse(&file_path.display().to_string(), lang, &bytes_owned)
+        {
+            Ok(t) => t,
+            Err(e) => {
+                warn!(
+                    target: "grafy.pass3",
+                    file = %file_path.display(),
+                    language = lang.as_str(),
+                    "reparse failed — verify valid {} source. ({})", lang.as_str(), e
+                );
+                return vec![];
+            }
+        };
+        (&bytes_owned, &tree_owned)
     };
 
-    let source_str = match std::str::from_utf8(&bytes) {
+    let source_str = match std::str::from_utf8(bytes) {
         Ok(s) => s,
         Err(_) => {
             warn!(
@@ -495,32 +631,18 @@ fn resolve_file(
         }
     };
 
-    // Reparse (W3 cost; W6 will cache parse trees).
-    let tree = match grafy_parser::parse(&file_path.display().to_string(), lang, &bytes) {
-        Ok(t) => t,
-        Err(e) => {
-            warn!(
-                target: "grafy.pass3",
-                file = %file_path.display(),
-                language = lang.as_str(),
-                "reparse failed — verify valid {} source. ({})", lang.as_str(), e
-            );
-            return vec![];
-        }
-    };
-
     if started.elapsed() > PER_FILE_TIMEOUT {
         warn!(
             target: "grafy.pass3",
             file = %file_path.display(),
             language = lang.as_str(),
-            "per-file timeout exceeded during reparse — skipping call edges. Split the file or open an issue."
+            "per-file timeout exceeded before query extraction — skipping call edges. Split the file or open an issue."
         );
         return vec![];
     }
 
-    let call_sites = extract_call_sites(&bytes, source_str, &tree, lang);
-    let imports = extract_imports(&bytes, source_str, &tree, lang);
+    let call_sites = extract_call_sites(bytes, source_str, tree, lang);
+    let imports = extract_imports(bytes, source_str, tree, lang);
 
     if started.elapsed() > PER_FILE_TIMEOUT {
         warn!(
@@ -532,22 +654,14 @@ fn resolve_file(
         return vec![];
     }
 
-    // Caller set: all definitions in this file. W3 heuristic: attribute every
-    // call site to every function/method definition in the file. This overshoots
-    // when a file has many top-level functions — a known W3 limitation. W6+
-    // will use the enclosing-node tree walk to narrow attribution.
-    let callers: Vec<u64> = sym
-        .file_defs
-        .get(file_path)
-        .map(|defs| defs.iter().map(|(_, id)| *id).collect())
-        .unwrap_or_else(|| {
-            let rel_path = file_path
-                .strip_prefix(root)
-                .unwrap_or(file_path)
-                .to_string_lossy()
-                .into_owned();
-            vec![node_id(&rel_path, &rel_path, NodeKind::File, 0)]
-        });
+    // W6.5: Fallback caller (module/file node) used when a call site has no
+    // enclosing function definition (i.e. it is at module/top level).
+    let rel_path = file_path
+        .strip_prefix(root)
+        .unwrap_or(file_path)
+        .to_string_lossy()
+        .into_owned();
+    let file_node_id = node_id(&rel_path, &rel_path, NodeKind::File, 0);
 
     let mut edges: Vec<EdgeWriteEvent> = Vec::new();
     // Dedup to avoid duplicate edges from the same (caller, callee) pair.
@@ -555,15 +669,23 @@ fn resolve_file(
 
     for site in &call_sites {
         let callees = resolve_call(site, file_path, lang, &imports, sym);
+        if callees.is_empty() {
+            continue;
+        }
+
+        // W6.5 enclosing-function attribution: find the tightest definition
+        // range that contains this call site. Fall back to file node.
+        let caller = sym
+            .enclosing_def(file_path, site.byte_start)
+            .unwrap_or(file_node_id);
+
         for callee in callees {
-            for &caller in &callers {
-                if caller != callee && seen.insert((caller, callee)) {
-                    edges.push(EdgeWriteEvent {
-                        from: caller,
-                        to: callee,
-                        kind: EdgeKind::Calls as u8,
-                    });
-                }
+            if caller != callee && seen.insert((caller, callee)) {
+                edges.push(EdgeWriteEvent {
+                    from: caller,
+                    to: callee,
+                    kind: EdgeKind::Calls as u8,
+                });
             }
         }
     }
@@ -611,11 +733,14 @@ pub fn unique_files(events: &[DefinitionEvent]) -> Vec<(PathBuf, Language)> {
 ///
 /// Called from the pipeline after draining `definitions_rx` to a `Vec` and
 /// building the shared symbol table once (which pass4 also uses).
+/// `cache` provides pre-parsed trees from pass 1 so pass 3 avoids re-reading
+/// and re-parsing each file (W6.5 fix).
 pub fn run_with_table(
     root: &Path,
     files: &[(PathBuf, Language)],
     sym: &SymbolTable,
     write_tx: Sender<WriteEvent>,
+    cache: &ParseCache,
 ) {
     let span = info_span!("pass3.calls");
     let _e = span.enter();
@@ -629,7 +754,7 @@ pub fn run_with_table(
     // Parallel resolution via rayon.
     let all_edges: Vec<EdgeWriteEvent> = files
         .par_iter()
-        .flat_map(|(path, lang)| resolve_file(path, root, *lang, sym))
+        .flat_map(|(path, lang)| resolve_file(path, root, *lang, sym, cache))
         .collect();
 
     let edge_count = all_edges.len();
@@ -666,5 +791,8 @@ pub fn run(root: &Path, definitions_rx: Receiver<DefinitionEvent>, write_tx: Sen
     let sym = build_symbol_table(&events, root);
     let files = unique_files(&events);
 
-    run_with_table(root, &files, &sym, write_tx);
+    // No cache available in standalone mode — each file will fall back to
+    // fresh read + parse (same as the original W3 implementation).
+    let empty_cache = ParseCache::new();
+    run_with_table(root, &files, &sym, write_tx, &empty_cache);
 }

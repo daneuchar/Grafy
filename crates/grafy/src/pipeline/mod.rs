@@ -6,6 +6,7 @@
 //!
 //! M1 W6: incremental reindex via blake3 content hashing.
 
+pub mod cache;
 pub mod channels;
 pub mod incremental;
 pub mod pass1;
@@ -15,6 +16,7 @@ pub mod pass4;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crossbeam_channel::{bounded, unbounded};
 use ignore::WalkBuilder;
@@ -26,6 +28,7 @@ use crate::store::EdgeKind;
 
 use grafy_parser::Language;
 
+use crate::pipeline::cache::{CacheBudget, ParseCache};
 use crate::store::{FileRecord, NodeKind, Store, WriterStats, FILES_TABLE};
 
 use channels::{FileWork, WriteEvent, CHANNEL_BUFFER};
@@ -300,14 +303,28 @@ impl Pipeline {
         let root_p1 = self.root.clone();
         let root_p2 = self.root.clone();
 
+        // Parse cache: populated by pass 1, consumed by pass 3 + pass 4.
+        // The Arc lets us share the map across the scope boundary without copying.
+        let parse_cache: Arc<ParseCache> = Arc::new(ParseCache::new());
+        let budget = Arc::new(CacheBudget::new());
+        let cache_p1 = Arc::clone(&parse_cache);
+        let budget_p1 = Arc::clone(&budget);
+
         // Spawn pass 2.
         let p2_handle = std::thread::spawn(move || {
             pass2::run(&root_p2, structure_rx, definitions_tx, write_tx_p2);
         });
 
-        // Spawn pass 1.
+        // Spawn pass 1 — also populates parse_cache.
         let p1_handle = std::thread::spawn(move || {
-            pass1::run(&root_p1, files_rx, structure_tx, write_tx);
+            pass1::run(
+                &root_p1,
+                files_rx,
+                structure_tx,
+                write_tx,
+                &cache_p1,
+                &budget_p1,
+            );
         });
 
         // Feed work items into pass 1.
@@ -348,13 +365,14 @@ impl Pipeline {
         let root_ref = &self.root;
         let files_ref = &files;
         let sym_ref = &sym;
+        let cache_ref = &parse_cache;
 
         std::thread::scope(|s| {
             let p3 = s.spawn(|| {
-                pass3::run_with_table(root_ref, files_ref, sym_ref, write_tx_p3);
+                pass3::run_with_table(root_ref, files_ref, sym_ref, write_tx_p3, cache_ref);
             });
             let p4 = s.spawn(|| {
-                pass4::run_with_table(root_ref, files_ref, sym_ref, write_tx_p4);
+                pass4::run_with_table(root_ref, files_ref, sym_ref, write_tx_p4, cache_ref);
             });
             if let Err(e) = p3.join() {
                 warn!(target: "grafy.pipeline", "pass3 thread panicked: {:?}", e);
