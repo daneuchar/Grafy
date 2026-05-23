@@ -14,8 +14,7 @@ use std::path::PathBuf;
 use rmcp::{
     handler::server::wrapper::Parameters,
     model::{CallToolResult, Content},
-    schemars,
-    tool, tool_router,
+    schemars, tool, tool_router,
 };
 use serde::Deserialize;
 
@@ -71,11 +70,17 @@ impl GrafyServer {
 pub struct IndexRepositoryParams {
     #[schemars(description = "Path to the repository")]
     pub repo_path: String,
-    #[schemars(description = "full: all passes. moderate: fast + semantic. fast: structure only. cross-repo-intelligence: match Routes/Channels across projects.")]
+    #[schemars(
+        description = "full: all passes. moderate: fast + semantic. fast: structure only. cross-repo-intelligence: match Routes/Channels across projects."
+    )]
     pub mode: Option<String>,
-    #[schemars(description = "Projects to search for cross-repo links (cross-repo-intelligence mode). Use [\"*\"] for all indexed projects. Run list_projects to see available projects.")]
+    #[schemars(
+        description = "Projects to search for cross-repo links (cross-repo-intelligence mode). Use [\"*\"] for all indexed projects. Run list_projects to see available projects."
+    )]
     pub target_projects: Option<Vec<String>>,
-    #[schemars(description = "Write compressed artifact to .codebase-memory/graph.db.zst for team sharing.")]
+    #[schemars(
+        description = "Write compressed artifact to .codebase-memory/graph.db.zst for team sharing."
+    )]
     pub persistence: Option<bool>,
 }
 
@@ -116,12 +121,16 @@ pub struct TracePathParams {
     pub project: String,
     pub direction: Option<String>,
     pub depth: Option<i64>,
-    #[schemars(description = "calls: follow CALLS edges. data_flow: follow CALLS+DATA_FLOWS. cross_service: follow HTTP_CALLS+ASYNC_CALLS+DATA_FLOWS through Routes.")]
+    #[schemars(
+        description = "calls: follow CALLS edges. data_flow: follow CALLS+DATA_FLOWS. cross_service: follow HTTP_CALLS+ASYNC_CALLS+DATA_FLOWS through Routes."
+    )]
     pub mode: Option<String>,
     #[schemars(description = "For data_flow mode: scope trace to a specific parameter name")]
     pub parameter_name: Option<String>,
     pub edge_types: Option<Vec<String>>,
-    #[schemars(description = "Add risk classification (CRITICAL/HIGH/MEDIUM/LOW) based on hop distance")]
+    #[schemars(
+        description = "Add risk classification (CRITICAL/HIGH/MEDIUM/LOW) based on hop distance"
+    )]
     pub risk_labels: Option<bool>,
     #[schemars(description = "Include test files in results.")]
     pub include_tests: Option<bool>,
@@ -154,9 +163,13 @@ pub struct SearchCodeParams {
     pub file_pattern: Option<String>,
     #[schemars(description = "Regex filter on result file paths (e.g. ^src/ or \\.(go|ts)$)")]
     pub path_filter: Option<String>,
-    #[schemars(description = "compact: signatures+metadata (default). full: with source. files: just file list.")]
+    #[schemars(
+        description = "compact: signatures+metadata (default). full: with source. files: just file list."
+    )]
     pub mode: Option<String>,
-    #[schemars(description = "Lines of context around each match (like grep -C). Only used in compact mode.")]
+    #[schemars(
+        description = "Lines of context around each match (like grep -C). Only used in compact mode."
+    )]
     pub context: Option<i64>,
     pub regex: Option<bool>,
     #[schemars(description = "Max enriched results per call. Default 10.")]
@@ -208,12 +221,11 @@ fn open_store(root: &std::path::Path) -> anyhow::Result<Store> {
 /// Format a tool-level error as a JSON text payload that follows the project
 /// error UX policy: tool name, file/context, one-line action.
 fn tool_error(tool: &str, file: &str, action: &str) -> CallToolResult {
-    let msg = format!(
-        "grafy {tool}: {file} — {action}"
-    );
+    let msg = format!("grafy {tool}: {file} — {action}");
     tracing::warn!(target: "grafy.mcp", tool, file, action, "tool error");
     CallToolResult::success(vec![Content::text(format!(
-        "{{\"error\": \"{}\"}}", msg.replace('"', "'")
+        "{{\"error\": \"{}\"}}",
+        msg.replace('"', "'")
     ))])
 }
 
@@ -229,11 +241,10 @@ fn tool_ok(value: serde_json::Value) -> CallToolResult {
 impl GrafyServer {
     // --- index_repository --------------------------------------------------
 
-    #[tool(description = "Index a repository into the knowledge graph. Special mode 'cross-repo-intelligence': skip extraction, only match Routes/Channels across projects to create CROSS_HTTP_CALLS/CROSS_ASYNC_CALLS/CROSS_CHANNEL edges. Requires target_projects param. Ensure target projects have fresh indexes first.")]
-    fn index_repository(
-        &self,
-        Parameters(p): Parameters<IndexRepositoryParams>,
-    ) -> CallToolResult {
+    #[tool(
+        description = "Index a repository into the knowledge graph. Special mode 'cross-repo-intelligence': skip extraction, only match Routes/Channels across projects to create CROSS_HTTP_CALLS/CROSS_ASYNC_CALLS/CROSS_CHANNEL edges. Requires target_projects param. Ensure target projects have fresh indexes first."
+    )]
+    fn index_repository(&self, Parameters(p): Parameters<IndexRepositoryParams>) -> CallToolResult {
         let repo_path = PathBuf::from(&p.repo_path);
         let root = if repo_path.is_absolute() {
             repo_path
@@ -281,16 +292,21 @@ impl GrafyServer {
 
     // --- search_graph -------------------------------------------------------
 
-    #[tool(description = "Search the code knowledge graph for functions, classes, routes, and variables. Use INSTEAD OF grep/glob when finding code definitions, implementations, or relationships. Three search modes: (1) query='update settings' for BM25 ranked full-text search; (2) name_pattern='.*regex.*' for exact pattern matching; (3) semantic_query=[...] for vector cosine search. PAGINATION: results are capped at limit (default 200). Response includes 'total' and 'has_more'.")]
-    fn search_graph(
-        &self,
-        Parameters(p): Parameters<SearchGraphParams>,
-    ) -> CallToolResult {
+    #[tool(
+        description = "Search the code knowledge graph for functions, classes, routes, and variables. Use INSTEAD OF grep/glob when finding code definitions, implementations, or relationships. Three search modes: (1) query='update settings' for BM25 ranked full-text search; (2) name_pattern='.*regex.*' for exact pattern matching; (3) semantic_query=[...] for vector cosine search. PAGINATION: results are capped at limit (default 200). Response includes 'total' and 'has_more'."
+    )]
+    fn search_graph(&self, Parameters(p): Parameters<SearchGraphParams>) -> CallToolResult {
         tracing::info!(target: "grafy.mcp", tool = "search_graph", project = %p.project, "searching graph");
 
         let store = match open_store(&self.root) {
             Ok(s) => s,
-            Err(e) => return tool_error("search_graph", &self.root.display().to_string(), &e.to_string()),
+            Err(e) => {
+                return tool_error(
+                    "search_graph",
+                    &self.root.display().to_string(),
+                    &e.to_string(),
+                )
+            }
         };
 
         let limit = p.limit.unwrap_or(200).max(1) as usize;
@@ -299,13 +315,23 @@ impl GrafyServer {
         let db = store.read_db();
         let tx = match db.begin_read() {
             Ok(t) => t,
-            Err(e) => return tool_error("search_graph", &self.root.display().to_string(),
-                &format!("store read failed — rebuild with `grafy index`. ({e})")),
+            Err(e) => {
+                return tool_error(
+                    "search_graph",
+                    &self.root.display().to_string(),
+                    &format!("store read failed — rebuild with `grafy index`. ({e})"),
+                )
+            }
         };
         let nodes_tbl = match tx.open_table(NODES_TABLE) {
             Ok(t) => t,
-            Err(e) => return tool_error("search_graph", &self.root.display().to_string(),
-                &format!("open nodes table failed. ({e})")),
+            Err(e) => {
+                return tool_error(
+                    "search_graph",
+                    &self.root.display().to_string(),
+                    &format!("open nodes table failed. ({e})"),
+                )
+            }
         };
 
         let name_pat = p.name_pattern.as_deref().unwrap_or("");
@@ -394,11 +420,10 @@ impl GrafyServer {
 
     // --- query_graph --------------------------------------------------------
 
-    #[tool(description = "Execute a Cypher query against the knowledge graph for complex multi-hop patterns, aggregations, and cross-service analysis. The response includes 'total' (returned row count). There is a hard 100k row ceiling — for broad queries add LIMIT in the Cypher itself or use search_graph + offset/limit pagination instead.")]
-    fn query_graph(
-        &self,
-        Parameters(p): Parameters<QueryGraphParams>,
-    ) -> CallToolResult {
+    #[tool(
+        description = "Execute a Cypher query against the knowledge graph for complex multi-hop patterns, aggregations, and cross-service analysis. The response includes 'total' (returned row count). There is a hard 100k row ceiling — for broad queries add LIMIT in the Cypher itself or use search_graph + offset/limit pagination instead."
+    )]
+    fn query_graph(&self, Parameters(p): Parameters<QueryGraphParams>) -> CallToolResult {
         tracing::info!(
             target: "grafy.mcp",
             tool = "query_graph",
@@ -409,7 +434,13 @@ impl GrafyServer {
 
         let store = match open_store(&self.root) {
             Ok(s) => s,
-            Err(e) => return tool_error("query_graph", &self.root.display().to_string(), &e.to_string()),
+            Err(e) => {
+                return tool_error(
+                    "query_graph",
+                    &self.root.display().to_string(),
+                    &e.to_string(),
+                )
+            }
         };
 
         match crate::cypher::execute(store.read_db(), &p.query) {
@@ -434,31 +465,28 @@ impl GrafyServer {
 
     // --- trace_path ---------------------------------------------------------
 
-    #[tool(description = "Trace paths through the code graph. Modes: calls (callers/callees), data_flow (value propagation with args at each hop), cross_service (through HTTP/async Route nodes). Use INSTEAD OF grep for callers, dependencies, impact analysis, or data flow tracing.")]
-    fn trace_path(
-        &self,
-        Parameters(p): Parameters<TracePathParams>,
-    ) -> CallToolResult {
+    #[tool(
+        description = "Trace paths through the code graph. Modes: calls (callers/callees), data_flow (value propagation with args at each hop), cross_service (through HTTP/async Route nodes). Use INSTEAD OF grep for callers, dependencies, impact analysis, or data flow tracing."
+    )]
+    fn trace_path(&self, Parameters(p): Parameters<TracePathParams>) -> CallToolResult {
         self.do_trace_path(p)
     }
 
     // --- trace_call_path (alias for trace_path) ----------------------------
 
-    #[tool(description = "Alias for trace_path. Trace paths through the code graph. Modes: calls (callers/callees), data_flow (value propagation with args at each hop), cross_service (through HTTP/async Route nodes).")]
-    fn trace_call_path(
-        &self,
-        Parameters(p): Parameters<TracePathParams>,
-    ) -> CallToolResult {
+    #[tool(
+        description = "Alias for trace_path. Trace paths through the code graph. Modes: calls (callers/callees), data_flow (value propagation with args at each hop), cross_service (through HTTP/async Route nodes)."
+    )]
+    fn trace_call_path(&self, Parameters(p): Parameters<TracePathParams>) -> CallToolResult {
         self.do_trace_path(p)
     }
 
     // --- get_code_snippet ---------------------------------------------------
 
-    #[tool(description = "Read source code for a function/class/symbol. IMPORTANT: First call search_graph to find the exact qualified_name, then pass it here. This is a read tool, not a search tool. Accepts full qualified_name (exact match) or short function name (returns suggestions if ambiguous).")]
-    fn get_code_snippet(
-        &self,
-        Parameters(p): Parameters<GetCodeSnippetParams>,
-    ) -> CallToolResult {
+    #[tool(
+        description = "Read source code for a function/class/symbol. IMPORTANT: First call search_graph to find the exact qualified_name, then pass it here. This is a read tool, not a search tool. Accepts full qualified_name (exact match) or short function name (returns suggestions if ambiguous)."
+    )]
+    fn get_code_snippet(&self, Parameters(p): Parameters<GetCodeSnippetParams>) -> CallToolResult {
         tracing::info!(
             target: "grafy.mcp",
             tool = "get_code_snippet",
@@ -468,18 +496,34 @@ impl GrafyServer {
 
         let store = match open_store(&self.root) {
             Ok(s) => s,
-            Err(e) => return tool_error("get_code_snippet", &self.root.display().to_string(), &e.to_string()),
+            Err(e) => {
+                return tool_error(
+                    "get_code_snippet",
+                    &self.root.display().to_string(),
+                    &e.to_string(),
+                )
+            }
         };
         let db = store.read_db();
         let tx = match db.begin_read() {
             Ok(t) => t,
-            Err(e) => return tool_error("get_code_snippet", &self.root.display().to_string(),
-                &format!("store read failed. ({e})")),
+            Err(e) => {
+                return tool_error(
+                    "get_code_snippet",
+                    &self.root.display().to_string(),
+                    &format!("store read failed. ({e})"),
+                )
+            }
         };
         let nodes_tbl = match tx.open_table(NODES_TABLE) {
             Ok(t) => t,
-            Err(e) => return tool_error("get_code_snippet", &self.root.display().to_string(),
-                &format!("open nodes table failed. ({e})")),
+            Err(e) => {
+                return tool_error(
+                    "get_code_snippet",
+                    &self.root.display().to_string(),
+                    &format!("open nodes table failed. ({e})"),
+                )
+            }
         };
 
         let mut matches: Vec<NodeRecord> = Vec::new();
@@ -540,33 +584,51 @@ impl GrafyServer {
     // --- get_graph_schema ---------------------------------------------------
 
     #[tool(description = "Get the schema of the knowledge graph (node labels, edge types)")]
-    fn get_graph_schema(
-        &self,
-        Parameters(p): Parameters<ProjectParam>,
-    ) -> CallToolResult {
+    fn get_graph_schema(&self, Parameters(p): Parameters<ProjectParam>) -> CallToolResult {
         tracing::info!(target: "grafy.mcp", tool = "get_graph_schema", project = %p.project, "getting schema");
 
         let store = match open_store(&self.root) {
             Ok(s) => s,
-            Err(e) => return tool_error("get_graph_schema", &self.root.display().to_string(), &e.to_string()),
+            Err(e) => {
+                return tool_error(
+                    "get_graph_schema",
+                    &self.root.display().to_string(),
+                    &e.to_string(),
+                )
+            }
         };
         let db = store.read_db();
         let tx = match db.begin_read() {
             Ok(t) => t,
-            Err(e) => return tool_error("get_graph_schema", &self.root.display().to_string(),
-                &format!("store read failed. ({e})")),
+            Err(e) => {
+                return tool_error(
+                    "get_graph_schema",
+                    &self.root.display().to_string(),
+                    &format!("store read failed. ({e})"),
+                )
+            }
         };
 
         // Count nodes by label
         let nodes_tbl = match tx.open_table(NODES_TABLE) {
             Ok(t) => t,
-            Err(e) => return tool_error("get_graph_schema", &self.root.display().to_string(),
-                &format!("open nodes table failed. ({e})")),
+            Err(e) => {
+                return tool_error(
+                    "get_graph_schema",
+                    &self.root.display().to_string(),
+                    &format!("open nodes table failed. ({e})"),
+                )
+            }
         };
         let edges_tbl = match tx.open_table(EDGES_TABLE) {
             Ok(t) => t,
-            Err(e) => return tool_error("get_graph_schema", &self.root.display().to_string(),
-                &format!("open edges table failed. ({e})")),
+            Err(e) => {
+                return tool_error(
+                    "get_graph_schema",
+                    &self.root.display().to_string(),
+                    &format!("open edges table failed. ({e})"),
+                )
+            }
         };
 
         let mut label_counts: HashMap<&str, u64> = HashMap::new();
@@ -584,7 +646,11 @@ impl GrafyServer {
             for item in iter.flatten() {
                 let (key, _) = item;
                 let (_, _, kind) = key.value();
-                let name = if kind == EdgeKind::Calls as u8 { "CALLS" } else { "ROUTES" };
+                let name = if kind == EdgeKind::Calls as u8 {
+                    "CALLS"
+                } else {
+                    "ROUTES"
+                };
                 *edge_counts.entry(name).or_insert(0) += 1;
             }
         }
@@ -612,32 +678,52 @@ impl GrafyServer {
 
     // --- get_architecture ---------------------------------------------------
 
-    #[tool(description = "Get high-level architecture overview — packages, services, dependencies, and project structure at a glance.")]
-    fn get_architecture(
-        &self,
-        Parameters(p): Parameters<GetArchitectureParams>,
-    ) -> CallToolResult {
+    #[tool(
+        description = "Get high-level architecture overview — packages, services, dependencies, and project structure at a glance."
+    )]
+    fn get_architecture(&self, Parameters(p): Parameters<GetArchitectureParams>) -> CallToolResult {
         tracing::info!(target: "grafy.mcp", tool = "get_architecture", project = %p.project, "getting architecture");
 
         let store = match open_store(&self.root) {
             Ok(s) => s,
-            Err(e) => return tool_error("get_architecture", &self.root.display().to_string(), &e.to_string()),
+            Err(e) => {
+                return tool_error(
+                    "get_architecture",
+                    &self.root.display().to_string(),
+                    &e.to_string(),
+                )
+            }
         };
         let db = store.read_db();
         let tx = match db.begin_read() {
             Ok(t) => t,
-            Err(e) => return tool_error("get_architecture", &self.root.display().to_string(),
-                &format!("store read failed. ({e})")),
+            Err(e) => {
+                return tool_error(
+                    "get_architecture",
+                    &self.root.display().to_string(),
+                    &format!("store read failed. ({e})"),
+                )
+            }
         };
         let nodes_tbl = match tx.open_table(NODES_TABLE) {
             Ok(t) => t,
-            Err(e) => return tool_error("get_architecture", &self.root.display().to_string(),
-                &format!("open nodes table failed. ({e})")),
+            Err(e) => {
+                return tool_error(
+                    "get_architecture",
+                    &self.root.display().to_string(),
+                    &format!("open nodes table failed. ({e})"),
+                )
+            }
         };
         let edges_tbl = match tx.open_table(EDGES_TABLE) {
             Ok(t) => t,
-            Err(e) => return tool_error("get_architecture", &self.root.display().to_string(),
-                &format!("open edges table failed. ({e})")),
+            Err(e) => {
+                return tool_error(
+                    "get_architecture",
+                    &self.root.display().to_string(),
+                    &format!("open edges table failed. ({e})"),
+                )
+            }
         };
 
         let mut total_nodes = 0u64;
@@ -670,7 +756,10 @@ impl GrafyServer {
                 for item in iter.flatten() {
                     let (key, val) = item;
                     let path = key.value();
-                    if let Some(ext) = std::path::Path::new(path).extension().and_then(|e| e.to_str()) {
+                    if let Some(ext) = std::path::Path::new(path)
+                        .extension()
+                        .and_then(|e| e.to_str())
+                    {
                         langs.insert(ext.to_string());
                     }
                     let _ = val; // FileRecord not needed here
@@ -685,7 +774,8 @@ impl GrafyServer {
             }
         }
 
-        let project_name = self.root
+        let project_name = self
+            .root
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown");
@@ -705,11 +795,10 @@ impl GrafyServer {
 
     // --- search_code --------------------------------------------------------
 
-    #[tool(description = "Graph-augmented code search. Finds text patterns via grep, then enriches results with the knowledge graph: deduplicates matches into containing functions, ranks by structural importance (definitions first, popular functions next, tests last). Modes: compact (default, signatures only — token efficient), full (with source), files (just file paths). TRUNCATION: enriched results are capped at limit (default 10).")]
-    fn search_code(
-        &self,
-        Parameters(p): Parameters<SearchCodeParams>,
-    ) -> CallToolResult {
+    #[tool(
+        description = "Graph-augmented code search. Finds text patterns via grep, then enriches results with the knowledge graph: deduplicates matches into containing functions, ranks by structural importance (definitions first, popular functions next, tests last). Modes: compact (default, signatures only — token efficient), full (with source), files (just file paths). TRUNCATION: enriched results are capped at limit (default 10)."
+    )]
+    fn search_code(&self, Parameters(p): Parameters<SearchCodeParams>) -> CallToolResult {
         tracing::info!(
             target: "grafy.mcp",
             tool = "search_code",
@@ -724,19 +813,35 @@ impl GrafyServer {
         // Walk indexed files and search for the pattern
         let store = match open_store(&self.root) {
             Ok(s) => s,
-            Err(e) => return tool_error("search_code", &self.root.display().to_string(), &e.to_string()),
+            Err(e) => {
+                return tool_error(
+                    "search_code",
+                    &self.root.display().to_string(),
+                    &e.to_string(),
+                )
+            }
         };
         let db = store.read_db();
         let tx = match db.begin_read() {
             Ok(t) => t,
-            Err(e) => return tool_error("search_code", &self.root.display().to_string(),
-                &format!("store read failed. ({e})")),
+            Err(e) => {
+                return tool_error(
+                    "search_code",
+                    &self.root.display().to_string(),
+                    &format!("store read failed. ({e})"),
+                )
+            }
         };
 
         let files_tbl = match tx.open_table(FILES_TABLE) {
             Ok(t) => t,
-            Err(e) => return tool_error("search_code", &self.root.display().to_string(),
-                &format!("open files table failed. ({e})")),
+            Err(e) => {
+                return tool_error(
+                    "search_code",
+                    &self.root.display().to_string(),
+                    &format!("open files table failed. ({e})"),
+                )
+            }
         };
 
         let pat_re = if use_regex {
@@ -747,7 +852,10 @@ impl GrafyServer {
         };
 
         let file_ext_filter = p.file_pattern.as_deref().unwrap_or("");
-        let path_filter_re = p.path_filter.as_deref().and_then(|s| regex::Regex::new(s).ok());
+        let path_filter_re = p
+            .path_filter
+            .as_deref()
+            .and_then(|s| regex::Regex::new(s).ok());
 
         let mut total_grep_matches = 0usize;
         let mut results: Vec<serde_json::Value> = Vec::new();
@@ -844,15 +952,13 @@ impl GrafyServer {
     // --- list_projects ------------------------------------------------------
 
     #[tool(description = "List all indexed projects")]
-    fn list_projects(
-        &self,
-        Parameters(_p): Parameters<ListProjectsParams>,
-    ) -> CallToolResult {
+    fn list_projects(&self, Parameters(_p): Parameters<ListProjectsParams>) -> CallToolResult {
         tracing::info!(target: "grafy.mcp", tool = "list_projects", "listing projects");
 
         let store_path = self.root.join(".grafy").join("index.redb");
         let exists = store_path.exists();
-        let project_name = self.root
+        let project_name = self
+            .root
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown");
@@ -860,14 +966,21 @@ impl GrafyServer {
         if exists {
             let store = match open_store(&self.root) {
                 Ok(s) => s,
-                Err(e) => return tool_error("list_projects", &self.root.display().to_string(), &e.to_string()),
+                Err(e) => {
+                    return tool_error(
+                        "list_projects",
+                        &self.root.display().to_string(),
+                        &e.to_string(),
+                    )
+                }
             };
             let db = store.read_db();
             let node_count: u64 = (|| -> Option<u64> {
                 let tx = db.begin_read().ok()?;
                 let t = tx.open_table(NODES_TABLE).ok()?;
                 t.len().ok()
-            })().unwrap_or(0);
+            })()
+            .unwrap_or(0);
 
             tool_ok(serde_json::json!({
                 "projects": [{
@@ -892,10 +1005,7 @@ impl GrafyServer {
     // --- delete_project -----------------------------------------------------
 
     #[tool(description = "Delete a project from the index")]
-    fn delete_project(
-        &self,
-        Parameters(p): Parameters<ProjectParam>,
-    ) -> CallToolResult {
+    fn delete_project(&self, Parameters(p): Parameters<ProjectParam>) -> CallToolResult {
         tracing::info!(target: "grafy.mcp", tool = "delete_project", project = %p.project, "deleting project");
 
         // Grafy does not support multi-project stores in v1. Return a clear action.
@@ -909,10 +1019,7 @@ impl GrafyServer {
     // --- index_status -------------------------------------------------------
 
     #[tool(description = "Get the indexing status of a project")]
-    fn index_status(
-        &self,
-        Parameters(p): Parameters<ProjectParam>,
-    ) -> CallToolResult {
+    fn index_status(&self, Parameters(p): Parameters<ProjectParam>) -> CallToolResult {
         tracing::info!(target: "grafy.mcp", tool = "index_status", project = %p.project, "checking index status");
 
         let store_path = self.root.join(".grafy").join("index.redb");
@@ -926,19 +1033,27 @@ impl GrafyServer {
 
         let store = match open_store(&self.root) {
             Ok(s) => s,
-            Err(e) => return tool_error("index_status", &store_path.display().to_string(), &e.to_string()),
+            Err(e) => {
+                return tool_error(
+                    "index_status",
+                    &store_path.display().to_string(),
+                    &e.to_string(),
+                )
+            }
         };
         let db = store.read_db();
         let node_count: u64 = (|| -> Option<u64> {
             let tx = db.begin_read().ok()?;
             let t = tx.open_table(NODES_TABLE).ok()?;
             t.len().ok()
-        })().unwrap_or(0);
+        })()
+        .unwrap_or(0);
         let edge_count: u64 = (|| -> Option<u64> {
             let tx = db.begin_read().ok()?;
             let t = tx.open_table(EDGES_TABLE).ok()?;
             t.len().ok()
-        })().unwrap_or(0);
+        })()
+        .unwrap_or(0);
 
         tool_ok(serde_json::json!({
             "project": p.project,
@@ -952,10 +1067,7 @@ impl GrafyServer {
     // --- detect_changes -----------------------------------------------------
 
     #[tool(description = "Detect code changes and their impact")]
-    fn detect_changes(
-        &self,
-        Parameters(p): Parameters<DetectChangesParams>,
-    ) -> CallToolResult {
+    fn detect_changes(&self, Parameters(p): Parameters<DetectChangesParams>) -> CallToolResult {
         tracing::info!(target: "grafy.mcp", tool = "detect_changes", project = %p.project, "detecting changes");
 
         // Stub: this requires git + diff-against-store capability not yet implemented.
@@ -969,10 +1081,7 @@ impl GrafyServer {
     // --- manage_adr ---------------------------------------------------------
 
     #[tool(description = "Create or update Architecture Decision Records")]
-    fn manage_adr(
-        &self,
-        Parameters(p): Parameters<ManageAdrParams>,
-    ) -> CallToolResult {
+    fn manage_adr(&self, Parameters(p): Parameters<ManageAdrParams>) -> CallToolResult {
         tracing::info!(target: "grafy.mcp", tool = "manage_adr", project = %p.project, "managing ADR");
 
         // Stub: ADR management not in grafy v1.
@@ -986,10 +1095,7 @@ impl GrafyServer {
     // --- ingest_traces ------------------------------------------------------
 
     #[tool(description = "Ingest runtime traces to enhance the knowledge graph")]
-    fn ingest_traces(
-        &self,
-        Parameters(p): Parameters<IngestTracesParams>,
-    ) -> CallToolResult {
+    fn ingest_traces(&self, Parameters(p): Parameters<IngestTracesParams>) -> CallToolResult {
         tracing::info!(
             target: "grafy.mcp",
             tool = "ingest_traces",
@@ -1025,23 +1131,44 @@ impl GrafyServer {
 
         let store = match open_store(&self.root) {
             Ok(s) => s,
-            Err(e) => return tool_error("trace_path", &self.root.display().to_string(), &e.to_string()),
+            Err(e) => {
+                return tool_error(
+                    "trace_path",
+                    &self.root.display().to_string(),
+                    &e.to_string(),
+                )
+            }
         };
         let db = store.read_db();
         let tx = match db.begin_read() {
             Ok(t) => t,
-            Err(e) => return tool_error("trace_path", &self.root.display().to_string(),
-                &format!("store read failed. ({e})")),
+            Err(e) => {
+                return tool_error(
+                    "trace_path",
+                    &self.root.display().to_string(),
+                    &format!("store read failed. ({e})"),
+                )
+            }
         };
         let nodes_tbl = match tx.open_table(NODES_TABLE) {
             Ok(t) => t,
-            Err(e) => return tool_error("trace_path", &self.root.display().to_string(),
-                &format!("open nodes table failed. ({e})")),
+            Err(e) => {
+                return tool_error(
+                    "trace_path",
+                    &self.root.display().to_string(),
+                    &format!("open nodes table failed. ({e})"),
+                )
+            }
         };
         let edges_tbl = match tx.open_table(EDGES_TABLE) {
             Ok(t) => t,
-            Err(e) => return tool_error("trace_path", &self.root.display().to_string(),
-                &format!("open edges table failed. ({e})")),
+            Err(e) => {
+                return tool_error(
+                    "trace_path",
+                    &self.root.display().to_string(),
+                    &format!("open edges table failed. ({e})"),
+                )
+            }
         };
 
         let direction = p.direction.as_deref().unwrap_or("both");
@@ -1151,7 +1278,10 @@ impl GrafyServer {
             }
         }
 
-        let start_name = start_ids.first().map(|(_, r)| r.fqn.as_str()).unwrap_or(&p.function_name);
+        let start_name = start_ids
+            .first()
+            .map(|(_, r)| r.fqn.as_str())
+            .unwrap_or(&p.function_name);
         tool_ok(serde_json::json!({
             "function_name": start_name,
             "direction": direction,
@@ -1159,6 +1289,102 @@ impl GrafyServer {
             "hops": hops,
             "hop_count": hops.len(),
         }))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Test-only dispatch helper
+// ---------------------------------------------------------------------------
+
+#[cfg(any(test, feature = "testing"))]
+impl GrafyServer {
+    /// Dispatch a tool call by name with a JSON-object argument map.
+    ///
+    /// Used by `parity_schemas` and `parity_sessions` integration tests to
+    /// invoke handler methods without standing up a full MCP stdio transport.
+    /// Each arm deserialises `args` into the typed params struct and calls the
+    /// corresponding handler method directly.
+    /// Gate: compiled only when `cfg(test)` or the `testing` feature is active.
+    pub fn dispatch(
+        &self,
+        tool: &str,
+        args: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        use rmcp::handler::server::wrapper::Parameters;
+
+        fn deser<T: serde::de::DeserializeOwned>(v: serde_json::Value) -> Result<T, String> {
+            serde_json::from_value(v).map_err(|e| format!("bad params: {e}"))
+        }
+
+        fn extract(r: rmcp::model::CallToolResult) -> Result<serde_json::Value, String> {
+            let text = r
+                .content
+                .iter()
+                .find_map(|c| c.as_text().map(|t| t.text.clone()))
+                .unwrap_or_default();
+            serde_json::from_str(&text).map_err(|e| format!("response not JSON: {e}\nraw={text}"))
+        }
+
+        let result = match tool {
+            "index_repository" => {
+                let p: IndexRepositoryParams = deser(args)?;
+                self.index_repository(Parameters(p))
+            }
+            "search_graph" => {
+                let p: SearchGraphParams = deser(args)?;
+                self.search_graph(Parameters(p))
+            }
+            "query_graph" => {
+                let p: QueryGraphParams = deser(args)?;
+                self.query_graph(Parameters(p))
+            }
+            "trace_path" | "trace_call_path" => {
+                let p: TracePathParams = deser(args)?;
+                self.trace_path(Parameters(p))
+            }
+            "get_code_snippet" => {
+                let p: GetCodeSnippetParams = deser(args)?;
+                self.get_code_snippet(Parameters(p))
+            }
+            "get_graph_schema" => {
+                let p: ProjectParam = deser(args)?;
+                self.get_graph_schema(Parameters(p))
+            }
+            "get_architecture" => {
+                let p: GetArchitectureParams = deser(args)?;
+                self.get_architecture(Parameters(p))
+            }
+            "search_code" => {
+                let p: SearchCodeParams = deser(args)?;
+                self.search_code(Parameters(p))
+            }
+            "list_projects" => {
+                let p: ListProjectsParams = deser(args)?;
+                self.list_projects(Parameters(p))
+            }
+            "delete_project" => {
+                let p: ProjectParam = deser(args)?;
+                self.delete_project(Parameters(p))
+            }
+            "index_status" => {
+                let p: ProjectParam = deser(args)?;
+                self.index_status(Parameters(p))
+            }
+            "detect_changes" => {
+                let p: DetectChangesParams = deser(args)?;
+                self.detect_changes(Parameters(p))
+            }
+            "manage_adr" => {
+                let p: ManageAdrParams = deser(args)?;
+                self.manage_adr(Parameters(p))
+            }
+            "ingest_traces" => {
+                let p: IngestTracesParams = deser(args)?;
+                self.ingest_traces(Parameters(p))
+            }
+            other => return Err(format!("unknown tool: {other}")),
+        };
+        extract(result)
     }
 }
 

@@ -12,6 +12,11 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 
+[features]
+# Enable test-dispatch helper on GrafyServer (used by parity_schemas / parity_sessions tests).
+# Activated automatically for `cargo test` via [[test]] harness — do not enable in production builds.
+testing = []
+
 [lib]
 name = "grafy"
 path = "src/lib.rs"
@@ -73,6 +78,17 @@ tokio = { workspace = true }
 tempfile = { workspace = true }
 redb = { workspace = true }
 postcard = { workspace = true }
+jsonschema = "0.46"
+
+[[test]]
+name = "parity_schemas"
+path = "tests/parity_schemas.rs"
+required-features = ["testing"]
+
+[[test]]
+name = "parity_sessions"
+path = "tests/parity_sessions.rs"
+required-features = ["testing"]
 
 [lints.clippy]
 all = "warn"

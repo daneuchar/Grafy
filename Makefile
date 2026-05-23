@@ -1,4 +1,4 @@
-.PHONY: check fmt fmt-check clippy test bench fuzz dogfood diagnose mcp ci clean
+.PHONY: check fmt fmt-check clippy test bench fuzz dogfood diagnose mcp parity ci clean
 
 # Plan §M0 acceptance helpers.
 
@@ -37,7 +37,14 @@ diagnose:
 mcp:
 	cargo run -- mcp --check
 
-ci: fmt-check clippy test dogfood mcp
+# M1 quality gate: schema-compat + recorded-session parity (plan §4).
+# Runs 16 schema-compat tests + 5 recorded-session tests.
+# Schema drift is a blocker — see tests/parity/diffs.md and tests/parity/drift-log.md.
+parity:
+	cargo test -p grafy --features testing --test parity_schemas
+	cargo test -p grafy --features testing --test parity_sessions
+
+ci: fmt-check clippy test dogfood mcp parity
 
 clean:
 	cargo clean
