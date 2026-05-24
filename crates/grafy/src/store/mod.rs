@@ -46,10 +46,13 @@ pub struct FileRecord {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum EdgeKind {
-    /// A function/method call edge: caller → callee. Pass 3.
+    /// A function/method call edge: caller → callee. Pass 3 (heuristic).
     Calls = 0,
     /// An HTTP route → handler edge. Pass 4.
     Routes = 1,
+    /// Binding-precise reference edge ingested from an external SCIP indexer.
+    /// Added by M2 W2 alongside M1's heuristic Calls edges — both coexist.
+    Scip = 2,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

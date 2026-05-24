@@ -5,10 +5,12 @@
 
 pub mod cypher;
 pub mod fqn;
+pub mod install;
 pub mod lang;
 pub mod mcp;
 pub mod pipeline;
 pub mod routes;
+pub mod scip;
 pub mod store;
 pub mod watch;
 

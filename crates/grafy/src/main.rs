@@ -58,6 +58,18 @@ enum Cmd {
         #[arg(long)]
         check: bool,
     },
+    /// Install SCIP indexers (M2 W2). With `--with-scip`, runs the per-indexer
+    /// installer (npm / go install / coursier / rustup). Without flags, prints
+    /// a stub explaining the planned M3 behavior.
+    Install {
+        /// Install Sourcegraph SCIP indexers (scip-python, scip-typescript,
+        /// scip-go, scip-java, rust-analyzer). macOS + Linux only.
+        #[arg(long)]
+        with_scip: bool,
+        /// Print the commands that would run; don't execute.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 fn init_tracing() {
@@ -96,7 +108,7 @@ fn main() -> Result<()> {
             println!("{}", to_dot(&report, &path));
             // Summary to stderr (doesn't pollute .dot piped to graphviz).
             eprintln!(
-                "files={} modules={} functions={} classes={} structs={} enums={} traits={} methods={} calls={} routes={} unchanged={} modified={} new={} deleted={}",
+                "files={} modules={} functions={} classes={} structs={} enums={} traits={} methods={} calls={} routes={} scip_edges={} unchanged={} modified={} new={} deleted={}",
                 report.files,
                 report.modules,
                 report.functions,
@@ -107,6 +119,7 @@ fn main() -> Result<()> {
                 report.methods,
                 report.calls,
                 report.routes,
+                report.scip_edges,
                 report.unchanged,
                 report.modified,
                 report.new_files,
@@ -134,7 +147,7 @@ fn main() -> Result<()> {
                 "diagnose complete"
             );
             eprintln!(
-                "grafy diagnose: total={:?}  files={} modules={} functions={} classes={} structs={} enums={} traits={} methods={} calls={} routes={}",
+                "grafy diagnose: total={:?}  files={} modules={} functions={} classes={} structs={} enums={} traits={} methods={} calls={} routes={} scip_edges={}",
                 elapsed,
                 report.files,
                 report.modules,
@@ -146,7 +159,11 @@ fn main() -> Result<()> {
                 report.methods,
                 report.calls,
                 report.routes,
+                report.scip_edges,
             );
+            // SCIP indexer table — same format as `grafy install --with-scip`.
+            let mut stderr = std::io::stderr();
+            let _ = grafy::install::report::print_indexer_status(&mut stderr);
         }
         Cmd::Query { path, cypher } => {
             let store = match Store::open(&path) {
@@ -171,6 +188,21 @@ fn main() -> Result<()> {
                     std::process::exit(2);
                 }
             }
+        }
+        Cmd::Install { with_scip, dry_run } => {
+            if !with_scip {
+                println!(
+                    "grafy install: use --with-scip to install SCIP indexers.\n\
+                     Full `grafy install` (auto-configures .mcp.json) lands in M3."
+                );
+                return Ok(());
+            }
+            let entries = grafy::install::installer::run_with_scip(dry_run);
+            let mut stdout = std::io::stdout();
+            grafy::install::report::print_report(&entries, &mut stdout)?;
+            // Re-probe detected indexers post-install for the trailing status block.
+            println!();
+            grafy::install::report::print_indexer_status(&mut stdout)?;
         }
         Cmd::Mcp { root, check } => {
             if check {

@@ -53,6 +53,12 @@ pub struct IndexReport {
     pub calls: u64,
     /// Number of HTTP route nodes written by pass 4.
     pub routes: u64,
+    /// Number of binding-precise edges ingested from SCIP indexers (M2 W2).
+    pub scip_edges: u64,
+    /// Set of distinct `grafy_parser::Language` discriminants whose files
+    /// were touched during this run. Used by SCIP ingest to skip indexers
+    /// for languages not present in the repo.
+    pub languages: HashSet<u8>,
     // Incremental counts (M1 W6).
     pub unchanged: u64,
     pub modified: u64,
@@ -61,10 +67,13 @@ pub struct IndexReport {
 }
 
 impl IndexReport {
+    #[allow(clippy::too_many_arguments)]
     fn from_counts(
         counts: &HashMap<u8, u64>,
         calls: u64,
         routes: u64,
+        scip_edges: u64,
+        languages: HashSet<u8>,
         unchanged: u64,
         modified: u64,
         new_files: u64,
@@ -81,11 +90,20 @@ impl IndexReport {
             methods: *counts.get(&(NodeKind::Method as u8)).unwrap_or(&0),
             calls,
             routes,
+            scip_edges,
+            languages,
             unchanged,
             modified,
             new_files,
             deleted,
         }
+    }
+
+    /// True if any indexed file used `lang`. SCIP ingest uses this to skip
+    /// indexers whose language doesn't appear in the repo.
+    #[must_use]
+    pub fn has_language(&self, lang: grafy_parser::Language) -> bool {
+        self.languages.contains(&(lang as u8))
     }
 
     pub fn total_nodes(&self) -> u64 {
@@ -167,6 +185,8 @@ impl Pipeline {
         let mut work_items: Vec<FileWork> = Vec::new();
         // Rel-paths of files to sweep before re-indexing.
         let mut to_sweep: Vec<String> = Vec::new();
+        // Languages observed in the walk (for SCIP indexer dispatch).
+        let mut languages_seen: HashSet<u8> = HashSet::new();
 
         {
             let span = info_span!("pipeline.walk");
@@ -200,6 +220,7 @@ impl Pipeline {
                     .into_owned();
 
                 seen_files.insert(rel_path.clone());
+                languages_seen.insert(lang as u8);
 
                 let prev = prev_records.get(&rel_path);
                 let status = incremental::classify(prev, &path);
@@ -260,7 +281,14 @@ impl Pipeline {
 
         // If nothing changed and nothing deleted, fast-path: just tally and return.
         if work_items.is_empty() && deleted_paths.is_empty() && to_sweep.is_empty() {
-            let report = count_nodes_from_store_db(store.read_db(), unchanged_count, 0, 0, 0)?;
+            let report = count_nodes_from_store_db(
+                store.read_db(),
+                languages_seen.clone(),
+                unchanged_count,
+                0,
+                0,
+                0,
+            )?;
             info!(
                 target: "grafy.pipeline",
                 unchanged = report.unchanged,
@@ -393,6 +421,17 @@ impl Pipeline {
         };
 
         // ------------------------------------------------------------------
+        // SCIP ingest sidecar (plan §4 M2 W2). Runs after the heuristic
+        // passes — augments, never replaces. Disabled via GRAFY_SCIP_DISABLE=1.
+        // ------------------------------------------------------------------
+        if std::env::var("GRAFY_SCIP_DISABLE").is_err() {
+            run_scip_ingest(&self.root, &languages_seen);
+            // First-run banner: shown once per repo when no SCIP indexer is
+            // detected (does not require ingest to have succeeded).
+            maybe_show_first_run_banner(&self.root);
+        }
+
+        // ------------------------------------------------------------------
         // Re-open store for read-only count (uses the same db path, but redb
         // requires a new read transaction after the writer has committed).
         // Plan §8 fix: we pass the already-opened Store::read_db() handle.
@@ -401,6 +440,7 @@ impl Pipeline {
         let store2 = Store::open(&self.root)?;
         let report = count_nodes_from_store_db(
             store2.read_db(),
+            languages_seen.clone(),
             unchanged_count,
             modified_count,
             new_count,
@@ -451,8 +491,10 @@ fn load_file_records(store: &Store) -> anyhow::Result<HashMap<String, FileRecord
 
 /// Read the `nodes` and `edges` tables from a redb `Database` and tally counts.
 /// Takes the `Database` reference directly to avoid a second `Store::open`.
+#[allow(clippy::too_many_arguments)]
 fn count_nodes_from_store_db(
     db: &redb::Database,
+    languages: HashSet<u8>,
     unchanged: u64,
     modified: u64,
     new_files: u64,
@@ -475,19 +517,130 @@ fn count_nodes_from_store_db(
     // Edge counts by kind.
     let edges_tbl = tx.open_table(EDGES_TABLE)?;
     let mut calls: u64 = 0;
+    let mut scip_edges: u64 = 0;
     for item in edges_tbl.iter()? {
         let (key, _val) = item?;
         let (_from, _to, kind) = key.value();
         if kind == EdgeKind::Calls as u8 {
             calls += 1;
+        } else if kind == EdgeKind::Scip as u8 {
+            scip_edges += 1;
         }
     }
 
     let routes = *counts.get(&(NodeKind::Route as u8)).unwrap_or(&0);
 
     Ok(IndexReport::from_counts(
-        &counts, calls, routes, unchanged, modified, new_files, deleted,
+        &counts, calls, routes, scip_edges, languages, unchanged, modified, new_files, deleted,
     ))
+}
+
+/// Spawn each detected SCIP indexer in sequence, ingest its `.scip` output.
+/// Skips indexers for languages absent from this run. Never panics; emits
+/// `tracing::warn!` and continues on per-indexer failures.
+fn run_scip_ingest(root: &Path, languages_seen: &HashSet<u8>) {
+    let span = info_span!("pipeline.scip_ingest");
+    let _e = span.enter();
+
+    let indexers = crate::scip::detect::detected_indexers();
+    if indexers.is_empty() {
+        tracing::debug!(
+            target: "grafy.pipeline",
+            "no SCIP indexers detected — skipping ingest (heuristic-only)"
+        );
+        return;
+    }
+
+    // Open the store ONCE. We snapshot the node indexes via a short-lived
+    // read transaction (released before spawning the writer), then move the
+    // Store into the writer thread which takes exclusive write access.
+    // redb permits only one process-wide handle; reopening for reads while a
+    // writer also holds the file errors with "Database already open".
+    let store = match Store::open(root) {
+        Ok(s) => s,
+        Err(e) => {
+            warn!(target: "grafy.pipeline", error = %e, "scip ingest: store reopen failed");
+            return;
+        }
+    };
+    let snapshot = match crate::scip::ingest::snapshot_indexes(&store) {
+        Ok(s) => s,
+        Err(e) => {
+            warn!(target: "grafy.pipeline", error = %e, "scip ingest: snapshot failed");
+            return;
+        }
+    };
+    let (write_tx, write_rx) = crossbeam_channel::bounded::<WriteEvent>(CHANNEL_BUFFER);
+    let writer_handle = store.writer(write_rx);
+
+    for ix in &indexers {
+        if !languages_seen.contains(&(ix.language as u8)) {
+            continue;
+        }
+        let scip_path = match crate::scip::run_indexer(ix, root) {
+            Ok(p) => p,
+            Err(e) => {
+                warn!(
+                    target: "grafy.scip",
+                    indexer = ix.name,
+                    language = ix.language.as_str(),
+                    error = %e,
+                    "SCIP indexer failed — falling back to heuristic for this language."
+                );
+                continue;
+            }
+        };
+        match crate::scip::ingest::ingest_scip_with_snapshot(
+            &scip_path,
+            &snapshot,
+            root,
+            &write_tx,
+            ix.name,
+        ) {
+            Ok(rep) => info!(
+                target: "grafy.scip",
+                indexer = ix.name,
+                language = ix.language.as_str(),
+                occurrences = rep.occurrences_seen,
+                edges = rep.edges_emitted,
+                "ingested",
+            ),
+            Err(e) => warn!(
+                target: "grafy.scip",
+                indexer = ix.name,
+                error = %e,
+                "ingest failed",
+            ),
+        }
+    }
+    drop(write_tx);
+    let _ = writer_handle.join();
+}
+
+/// Print the first-run banner once per repo when **no** SCIP indexers are
+/// detected. Banner is written to stderr (tracing/info go there too); the
+/// repo-local marker file `.grafy/.first-run` disables it on subsequent runs.
+fn maybe_show_first_run_banner(root: &Path) {
+    let marker = root.join(".grafy").join(".first-run");
+    if marker.exists() {
+        return;
+    }
+    let detected = crate::scip::detect::detected_indexers();
+    if !detected.is_empty() {
+        // User has at least one indexer; the banner is for the empty case.
+        // Still write the marker so we don't probe on every run.
+        let _ = std::fs::write(&marker, b"shown\n");
+        return;
+    }
+    let repo_name = root
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("repo");
+    eprintln!(
+        "grafy: indexed {repo_name} (heuristic resolution).\n  For binding-precise references, install a SCIP indexer:\n    grafy install --with-scip\n  Grafy auto-detects them on the next run.\n  Dismiss permanently: touch {}/.grafy/.first-run",
+        root.display()
+    );
+    let _ = std::fs::write(&marker, b"shown\n");
 }
 
 /// Emit a minimal Graphviz `.dot` representation.

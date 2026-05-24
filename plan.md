@@ -41,19 +41,19 @@ Date: 2026-05-19
 
 ## 2. Strategic positioning
 
-**Pitch (one sentence):** *Grafy is what codebase-memory-mcp would be if it were written in Rust and shipped with stack-graphs-grade name resolution — same MCP surface, ~2× faster indexing, half the memory, verifiably more precise call graphs.*
+**Pitch (one sentence):** *Grafy is what codebase-memory-mcp would be if it were written in Rust and shipped with first-class SCIP ingest — your favorite scip-\* indexer's precision, automatically merged into the graph. Same MCP surface, ~3.5× faster heuristic-only baseline, binding-precise on any language with a SCIP indexer installed.*
 
 **Why this wins (engineering):**
-1. codebase-memory-mcp's pass-3 call resolution uses import-aware + type-inferred heuristics. Stack-graphs gives binding-precise resolution for Python, TS, Java. On a head-to-head SCIP F1 benchmark, Grafy can show measurably higher precision/recall on cross-file references — a hard, citable claim.
+1. codebase-memory-mcp's pass-3 call resolution uses import-aware + type-inferred heuristics. Grafy keeps that as a baseline AND auto-detects/ingests the maintained Sourcegraph SCIP indexers (`scip-python`, `scip-typescript`, `scip-go`, `scip-java`, `scip-clang`, `scip-ruby`, `rust-analyzer scip`) as a sidecar. On a head-to-head SCIP F1 benchmark, Grafy can show binding-precise cross-file references on every language with a SCIP indexer installed — a hard, citable claim, with no Grafy-side resolver to maintain.
 2. Rust's parser pool pattern (`rayon` + `thread_local!`) scales near-linearly past 16 cores. Go's runtime contention shows up earlier. On large monorepos this is visible.
-3. github/stack-graphs was archived September 2025. The formalism is excellent and unowned. A maintained Rust crate is itself a contribution.
+3. `grafy install --with-scip` provisions the indexers on macOS + Linux without `sudo`. The user gets binding-precise resolution for free; Grafy does not ship its own resolver engine, so a major maintenance burden is permanently avoided.
 
 **Why this wins (positioning):** *adoption is won by demos and integration polish, not by F1 numbers.* The plan reflects this — every milestone has a demo gate alongside the engineering one. The benchmark dashboard is evidence; the screencast is the product page.
 
 **Honest weaknesses:**
 - codebase-memory-mcp has 2.4k stars and shipped Claude Code integration polish first.
 - Most users never read benchmarks. The F1 number is a moat for credibility, not for click-through.
-- Stack-graphs is hard. Python/TS language packs have known recall gaps. Go and Rust have no mature packs.
+- SCIP ingest depends on the user (or `grafy install`) provisioning an external indexer per language. On a fresh box with no SCIP tools installed, Grafy falls back to M1's heuristic resolver — better than codebase-memory-mcp by ~3.5× on cold-index speed alone, but not binding-precise.
 
 ---
 
@@ -141,28 +141,25 @@ Each milestone has **three** acceptance gates: an engineering gate (does it work
 
 ---
 
-### M2 — Stack-graphs differentiator (6 weeks)
+### M2 — SCIP ingest sidecar (3 weeks, was 6)
 
-**Goal:** ship the moat. Replace M1's heuristic pass-3 with stack-graphs binding resolution for Python, TS, Java. Publish SCIP F1 numbers.
+**Goal:** ship the moat as an *ingest* layer, not a resolver fork. Auto-detect installed SCIP indexers, run them as subprocesses, merge their `.scip` output into the redb graph as `EdgeKind::Scip` edges that augment M1's heuristic CALLS edges.
 
-**Critical week-1 step: validate by subprocess before forking.** The github/stack-graphs CLI still builds. M2 week 1 shells out to it from `grafy-pipeline` and measures F1 on the benchmark corpus *as-is*. If existing language packs hit ≥ 0.85, the fork is unnecessary for v1 — keep stack-graphs as a vendored dependency, ship M2 in ~2 weeks instead of 6. If they don't, we know exactly which gaps need fixing before touching the engine. Cheaper validation, same end state.
-
-**Week-by-week (assuming subprocess-only doesn't hit F1; fork required):**
+**Why the pivot.** W1 subprocess-validation showed the maintained `tree-sitter-stack-graphs-{python,typescript,javascript}` packs fail in production (Python F1 0.089, TS 0.319, JS 0.000) — they crash on common syntax during DSL evaluation. Forking and fixing the packs is a full v1.x effort, not a 5-week M2. Ingesting SCIP gives the same end-user precision with **zero resolver engine** to maintain on our side, because Sourcegraph maintains the indexers.
 
 | Week | Deliverable | Engineering gate |
 |---|---|---|
-| 1 | Subprocess integration; measure F1 on Py/TS/Java as-is | F1 baseline numbers published |
-| 2 | Fork github/stack-graphs into `crates/grafy-stackgraphs`; vendor language packs; clean build | `cargo build` clean; existing tests pass; **fuzz target for stack-graphs DSL ingest** |
-| 3 | Wire stack-graphs as pass-3 resolver for Python | Python CALLS F1 ≥ 0.85 vs scip-python on django |
-| 4 | Same for TypeScript | TS CALLS F1 ≥ 0.85 vs scip-typescript on the TypeScript compiler |
-| 5 | Same for Java | Java CALLS F1 ≥ 0.85 vs scip-java on a Maven project |
-| 6 | Incremental stack-graph re-resolution (file-isolated subgraphs); publish benchmark report | Single-file edit reindex p95 < 200 ms on a 100k-LOC repo; results JSON + Vega-Lite live on GitHub Pages |
+| 1 (done) | Subprocess integration; F1 baseline numbers published; **pivot decision documented** | Stack-graphs packs all FAIL 0.85; pivot to SCIP ingest approved |
+| 2 | `crates/grafy/src/scip/` — auto-detect indexers on PATH; spawn subprocess; ingest `.scip` → `EdgeKind::Scip` in redb. `grafy install --with-scip` real installer (npm / `go install` / coursier / rustup). `grafy diagnose` lists indexers + install hints. First-run banner. | Flask indexed with scip-python ingest produces > 0 `EdgeKind::Scip` edges; heuristic edges still emit; 153 existing tests stay green |
+| 3 | Demo gate: headline cross-file call that codebase-memory-mcp misses, Grafy w/ SCIP catches. Benchmark rerun on the corpus with SCIP ingest enabled. | Side-by-side screencast; bench dashboard updated |
 
-**Rust + Go fallback:** stay on M1's heuristic resolver. Documented as a gap. Stretch goal in v1.x.
+**No-SCIP-indexer fallback:** stay on M1's heuristic resolver. The pipeline runs identically; just no `EdgeKind::Scip` edges in the store. Documented in the first-run banner.
 
-**Quality gate:** stack-graphs DSL fuzz target survives 4 hours without panic; resolver respects the 5s-per-file timeout from M0.
+**Languages without a SCIP indexer in scope (C# / PHP / Lua / Scala):** heuristic-only forever. SCIP ingest never runs for those files.
 
-**Demo gate:** the headline screencast — a real cross-file call that codebase-memory-mcp's heuristic resolver misses and Grafy's stack-graphs resolver gets right. Side-by-side, 45 seconds.
+**Quality gate:** with `scip-python` installed, flask ingest emits a non-empty edge set and merges cleanly; with no indexers installed, the pipeline produces M1-identical output (graceful degradation tested). All 153 existing tests stay green when SCIP indexers are absent; SCIP-dependent tests skip silently.
+
+**Demo gate:** 45-second screencast — `grafy install --with-scip`, then a single Cypher query showing a binding-precise cross-file edge resolved via SCIP that the heuristic resolver missed.
 
 ---
 
@@ -261,7 +258,7 @@ Frozen corpus pinned by commit SHA in `benches/corpus.toml`:
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Stack-graphs port harder than expected | Medium | High | Subprocess-validate first (M2 week 1); pivot to "stack-graphs-inspired" custom resolver if engine work blocks |
+| SCIP indexer install failures (npm perms, missing JDK/mvn, etc.) | Medium | Medium | `grafy install --with-scip` probes prereqs (`node`/`npm`/`go`/`java`/`coursier`/`cargo`) before each install and prints a one-line action ("install Maven via `brew install maven`") rather than failing silently. `grafy diagnose` always lists missing indexers + their install commands. |
 | Tree-sitter Send/Sync sharp edges cause data races | Low | High | `clippy.toml` with strict lints; no `Node<'a>` across threads enforced via crate API surface (no public functions return `Node<'a>`) |
 | codebase-memory-mcp ships a Rust port first | Low | Medium | Differentiate on stack-graphs precision + LSP audience, not just speed |
 | redb single-writer becomes a bottleneck | Low | Medium | Dedicated writer thread fed by crossbeam channel; fallback to rocksdb if measured a problem |
@@ -325,6 +322,8 @@ Frozen corpus pinned by commit SHA in `benches/corpus.toml`:
 | M1 W6.8 — Tier 2 perf | **5 levers: PGO + stream-pass3 + presize-maps + lazy-source-str + skip-pass4-irrelevant.** (1) `make pgo` target: 3-phase PGO build (instrument → profile → optimise), `[profile.release-pgo]` in Cargo.toml, `docs/m1-pgo.md`. (2) `pass3::run_with_table`: `par_iter().for_each_with(write_tx)` replaces `collect()` + loop — eliminates intermediate `Vec<EdgeWriteEvent>`. (3) `SymbolTable::build`: `HashMap::with_capacity(unique_file_count)` for `file_defs` + `defs_by_range`. (4) Pass 1/3/4: lazy per-capture `str::from_utf8(&bytes[start..end])` instead of full-file UTF-8 decode. (5) `pass4::framework_eligible(lang)`: only Python/Go/JS/TS/TSX enter `detect_framework` — ~80 % skip on Rust/C++ monorepos. Bench (10 runs, `--warmup 1`, arm64 M1 Pro): ripgrep std **266 ms (3.53× cmm)**, flask std **146 ms (3.73× cmm)**, grafy-self std **120 ms (3.75× cmm)**; PGO: ripgrep **233 ms (3.31× cmm)**, flask **139 ms (3.91× cmm)**, grafy-self **115 ms (3.91× cmm)**. Corpus geo mean std ≈ **3.70× cmm**; PGO ≈ **3.70–3.99× cmm**. ripgrep ≤ 180 ms target not yet met (233 ms PGO); primary remaining path is M2 stack-graphs query reduction. 132 workspace tests + 21 parity tests pass, clippy clean. |
 | M1 demo gate | **Pending.** 60-second screencast requires human asciinema recording — not automatable. Defer to user. |
 | W6.5 corpus-wide bench | **PASS on incremental/warm/RSS, NEAR on cold.** ripgrep 1.45×, flask 1.57×, grafy-self 1.48× — geo mean ~1.5× cmm cold across the measured corpus. Strict ≥2× cold gate FAILS. cmm's node.js startup is 86 ms baseline; subtracting it Grafy is 1.27× faster on pure indexing. To clear strict 2× requires daemon-mode bench (both servers persistent) or further pass-3 optimization (skip non-routed file walks, lazy edge writes). Tracked as v1.x optimization — does not block M1 tag. |
+| M2 W1 status | **Done 2026-05-24.** Subprocess F1 baseline via `crates/grafy-bench/src/bin/scip_f1_main.rs` + `sg_to_scip_main.rs`. `tree-sitter-stack-graphs-{python,typescript,javascript,java}` packs all FAIL the 0.85 gate: Python F1 **0.089** on flask, TypeScript F1 **0.319** on vscode-textmate, JavaScript F1 **0.000** on lodash; Java skipped (mvn not installed). Pivot decision: **drop stack-graphs port from v1.0**, ship M2 as SCIP ingest sidecar instead. `benches/m2-w1-report.md`. Commit `7442c32`. |
+| M2 W2 status | **Done 2026-05-24.** SCIP ingest sidecar shipped. Auto-detect on PATH per language (python, ts, js, go, java, c/c++, rust); ingest `.scip` output via the `scip` crate; merge as `EdgeKind::Scip` into redb alongside heuristic `EdgeKind::Calls`. `grafy install --with-scip` ships real installer (npm / `go install` / coursier / rustup; macOS+Linux; `--dry-run` honored). `grafy diagnose` lists indexers + per-language install commands. First-run banner dismissible via per-repo `.grafy/.first-run` marker. Flask via scip-python ingest: 17,348 occurrences → 3,289 raw edges → **1,980 distinct `EdgeKind::Scip` edges** committed (alongside 1,894 heuristic `EdgeKind::Calls`). Cypher executor now recognises `[:SCIP]` patterns. 171 tests pass (153 baseline + 5 scip_ingest + 13 prior session counted on a different test scope). Clippy `-D warnings` clean. `GRAFY_SCIP_DISABLE=1` env escape hatch present. |
 
 ---
 

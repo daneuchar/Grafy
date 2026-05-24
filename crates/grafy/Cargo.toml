@@ -77,6 +77,13 @@ tokio = { workspace = true }
 # Faster allocator
 mimalloc = { workspace = true }
 
+# SCIP ingest — M2 W2. Reads `.scip` protobuf output from Sourcegraph indexers
+# (scip-python, scip-typescript, scip-go, scip-java, scip-clang, scip-ruby,
+# rust-analyzer scip) and merges as `EdgeKind::Scip` edges. Version pin must
+# match grafy-bench's `scip` (= 0.7.1) so `cargo tree` resolves one copy.
+scip = "0.7.1"
+protobuf = "=3.7.2"
+
 [dev-dependencies]
 tempfile = { workspace = true }
 redb = { workspace = true }

@@ -554,6 +554,7 @@ fn edge_kind_name(kind_byte: u8) -> &'static str {
     match kind_byte {
         x if x == EdgeKind::Calls as u8 => "CALLS",
         x if x == EdgeKind::Routes as u8 => "ROUTES",
+        x if x == EdgeKind::Scip as u8 => "SCIP",
         _ => "UNKNOWN",
     }
 }
