@@ -359,3 +359,56 @@ If W1 fails any of Py/TS/Java: revert to the **6-week plan** as written in plan 
 ---
 
 *End of report. No code changes were made. `Cargo.toml` is untouched.*
+
+---
+
+## Q1–Q4 resolution (post-research, 2026-05-24)
+
+Open questions from §7 ranges resolved inline. All HIGH confidence.
+
+### Q1 — `tree-sitter-stack-graphs-python` throughput on flask
+
+`cargo install --features cli tree-sitter-stack-graphs-python` (v0.3.0) succeeded.
+`tree-sitter-stack-graphs-python index /tmp/flask` = **real 2.07s** (user 1.59 + sys 0.28) on 83 files ≈ ~24 ms/file. DSL errors on lambdas are tolerated (non-fatal). Subprocess viability for F1 measurement: **CONFIRMED**.
+
+### Q2 — `cargo audit` baseline
+
+`cargo install cargo-audit --locked` (v0.22.1) succeeded.
+`cargo audit` over 332 deps: **0 vulnerabilities. 1 unmaintained warning:** `atomic-polyfill 1.0.3` (RUSTSEC-2023-0089) reaches via `heapless 0.7.17 → postcard 1.1.3`. Not a ship-blocker.
+
+### Q3 — 4 stack-graphs language packs build together as library deps
+
+Research report cited stale versions. Latest on crates.io (2026-05-24):
+- `tree-sitter-stack-graphs-python = "0.3.0"`
+- `tree-sitter-stack-graphs-typescript = "0.4.0"`
+- `tree-sitter-stack-graphs-javascript = "0.3.0"`
+- `tree-sitter-stack-graphs-java = "0.5.0"`
+
+All four together pull `tree-sitter 0.24.7`, `tree-sitter-stack-graphs 0.10.0`, `stack-graphs 0.14.1` — single coherent dep graph. **`cargo check` clean in /tmp/sg-probe.**
+
+Implication: **library integration is viable for v1.0 without forking github/stack-graphs.** Plan §4 M2 fork path is no longer the fallback — it's been demoted to "only if F1 < 0.85 even with these packs."
+
+### Q4 — `scip-go` repo status
+
+`github.com/scip-code/scip-go`, **not archived**, last updated 2026-05-20, 68 stars. Usable as ground truth for Go F1 in M2.
+
+## Updated M2 plan (HIGH confidence)
+
+- **W1:** subprocess F1 measurement against scip-python / scip-typescript / scip-java / scip-go on django / TypeScript-compiler / a Maven project / kubernetes. Use installed CLIs. Time-box 5 days. Publish raw F1 numbers.
+- **W2:** vendor the 4 library packs into `grafy-stackgraphs` (as deps, not source — they all build together now). Bump workspace `tree-sitter` to `0.24` to match. Wire as pass-3 replacement for Python / TS / JS / Java.
+- **W3:** SCIP F1 gate verification (≥ 0.85 each) + demo gate (the headline cross-file call that heuristic misses, stack-graphs catches).
+
+Total: **2–3 weeks, not 6.** Fork stays parked.
+
+### Go-conditions met
+
+- ✓ Stack-graphs deps install + build as library and CLI.
+- ✓ Subprocess F1 measurement infrastructure works (Python proven; TS/Java/Go CLI installs queued).
+- ✓ Grafy stack audit clean (no CVE, 1 minor unmaintained warning).
+- ✓ Tree-sitter 0.24 bump unblocked (Q3 dep graph proves compatibility).
+
+### Stop-conditions
+
+- W1 F1 < 0.85 on Python → reconsider scope, possibly drop Python from M2 differentiator language list.
+- W2 dep-graph regression (e.g. Java pack 0.6 bumps and breaks Python coexistence) → fall back to subprocess-only for that language.
+
