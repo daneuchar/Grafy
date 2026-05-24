@@ -1,0 +1,8 @@
+{
+  "lang": "java",
+  "repo": "commons-lang",
+  "sha": "ef39bc92712d47c100af3b243a8bfcd84a45f116",
+  "status": "skipped",
+  "reason": "scip-java requires Maven (mvn) on PATH; not installed in this environment. Stop-condition triggered per M2 W1 brief.",
+  "verbatim_error": "java.io.IOException: Cannot run program \"mvn\" (in directory \"/private/tmp/grafy-m2/commons-lang\"): error=2, No such file or directory"
+}

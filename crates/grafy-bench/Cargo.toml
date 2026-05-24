@@ -18,6 +18,17 @@ path = "src/lib.rs"
 grafy-parser = { path = "../grafy-parser", version = "0.1.0" }
 rayon = { workspace = true }
 ignore = { workspace = true }
+# M2 W1: F1 differ vs SCIP ground truth. `scip` is the protobuf reader/writer
+# for `.scip` files; no other Rust crate provides this.
+scip = "0.7.1"
+# `scip` re-exports protobuf-generated types; we need the `protobuf` crate to
+# call `Message::write_to_vec`. Version pin must match `scip`'s exact pin
+# (=3.7.2) or Cargo will fail to resolve. Verified via `cargo tree`.
+protobuf = "=3.7.2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
@@ -25,6 +36,16 @@ criterion = { workspace = true }
 [[bench]]
 name = "parse_pool"
 harness = false
+
+# M2 W1 F1 differ binary. Drives subprocess CLIs + computes F1 vs SCIP ground truth.
+[[bin]]
+name = "scip-f1"
+path = "src/bin/scip_f1_main.rs"
+
+# Stack-graphs → synthetic SCIP adapter binary.
+[[bin]]
+name = "sg-to-scip"
+path = "src/bin/sg_to_scip_main.rs"
 
 [lints.clippy]
 all = "warn"

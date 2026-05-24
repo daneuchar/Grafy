@@ -1,0 +1,13 @@
+{
+  "lang": "typescript",
+  "repo": "vscode-textmate",
+  "sha": "1701cf6b45b25bed3a07b44d059e0f7930be30f2",
+  "ground_truth_refs": 8459,
+  "tool_refs": 3211,
+  "true_pos": 1605,
+  "false_pos": 1606,
+  "false_neg": 5248,
+  "precision": 0.49984428526938646,
+  "recall": 0.23420399824894206,
+  "f1": 0.3189586645468998
+}

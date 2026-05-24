@@ -1,0 +1,13 @@
+{
+  "lang": "javascript",
+  "repo": "lodash",
+  "sha": "a02353279093cca0fea1c8cc468ffbf03bb3485b",
+  "ground_truth_refs": 69190,
+  "tool_refs": 0,
+  "true_pos": 0,
+  "false_pos": 0,
+  "false_neg": 69190,
+  "precision": 0.0,
+  "recall": 0.0,
+  "f1": 0.0
+}

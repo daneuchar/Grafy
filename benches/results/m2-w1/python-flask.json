@@ -1,0 +1,13 @@
+{
+  "lang": "python",
+  "repo": "flask",
+  "sha": "954f5684e4841aad84a8eec7ace7b81a0d3f6831",
+  "ground_truth_refs": 4983,
+  "tool_refs": 367,
+  "true_pos": 233,
+  "false_pos": 134,
+  "false_neg": 4616,
+  "precision": 0.6348773841961853,
+  "recall": 0.048051144565889874,
+  "f1": 0.08934049079754601
+}
