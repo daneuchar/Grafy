@@ -136,16 +136,18 @@ impl Store {
     }
 
     /// Spawn the single writer thread. Drains `rx`, batching writes into
-    /// redb transactions (256 events or 50 ms, whichever comes first).
+    /// redb transactions (4096 events or 100 ms, whichever comes first).
     /// Returns the join handle; drop the sender side to signal shutdown.
     pub fn writer(self, rx: Receiver<WriteEvent>) -> std::thread::JoinHandle<WriterStats> {
         std::thread::spawn(move || {
             let span = info_span!("store.write");
             let _e = span.enter();
 
+            const BATCH_SIZE: usize = 4096;
+            let batch_deadline = Duration::from_millis(100);
+
             let mut stats = WriterStats::default();
-            let mut pending: Vec<WriteEvent> = Vec::with_capacity(256);
-            let batch_deadline = Duration::from_millis(50);
+            let mut pending: Vec<WriteEvent> = Vec::with_capacity(BATCH_SIZE);
 
             loop {
                 // Block until the first event (or channel closed).
@@ -171,7 +173,7 @@ impl Store {
                 // Drain as many as are immediately available (up to batch size).
                 let batch_start = Instant::now();
                 loop {
-                    if pending.len() >= 256 || batch_start.elapsed() >= batch_deadline {
+                    if pending.len() >= BATCH_SIZE || batch_start.elapsed() >= batch_deadline {
                         break;
                     }
                     match rx.try_recv() {
@@ -180,7 +182,7 @@ impl Store {
                     }
                 }
 
-                if pending.len() >= 256 || batch_start.elapsed() >= batch_deadline {
+                if pending.len() >= BATCH_SIZE || batch_start.elapsed() >= batch_deadline {
                     flush(&self.db, &mut pending, &mut stats);
                 }
             }

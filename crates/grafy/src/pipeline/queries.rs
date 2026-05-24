@@ -1,15 +1,22 @@
-//! Cached `tree_sitter::Query` instances. Compiling a Query is non-trivial;
-//! caching one per `(language, kind)` saves ~4× per-file work on cold index
-//! (pass 1 def query + pass 3 calls + imports + pass 4 routes).
+//! Cached `tree_sitter::Query` instances + thread-local `QueryCursor` pool.
+//! Compiling a Query is non-trivial; caching one per `(language, kind)`
+//! saves ~4× per-file work on cold index. Reusing the cursor avoids the
+//! per-file allocation of cursor state.
 
+use std::cell::RefCell;
 use std::sync::{Arc, OnceLock};
 
 use dashmap::DashMap;
 use grafy_parser::Language;
-use tree_sitter::Query;
+use tree_sitter::{Query, QueryCursor};
 
 use crate::lang::{calls_scm, definitions_scm, imports_scm};
 use crate::pipeline::pass3::ts_language_for;
+
+thread_local! {
+    /// One `QueryCursor` per worker thread, reused across files.
+    pub static CURSOR: RefCell<QueryCursor> = RefCell::new(QueryCursor::new());
+}
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub enum QueryKind {

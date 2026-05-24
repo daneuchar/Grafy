@@ -1,5 +1,8 @@
 //! `grafy` CLI. M1 commands: `index`, `diagnose`, `query`, `mcp`.
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use std::path::PathBuf;
 use std::time::Instant;
 

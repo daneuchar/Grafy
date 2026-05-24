@@ -64,6 +64,9 @@ regex = "1"
 # Test utilities
 tempfile = "3"
 
+# Faster allocator — Tier 1 perf
+mimalloc = { version = "0.1", default-features = false }
+
 # rmcp — M1 W5. Pin 1.7.0 (latest stable as of 2026-05).
 # Uses server + macros features (stdio transport, #[tool] macros).
 # No client/HTTP/auth features pulled in — keeps the dep footprint minimal.
@@ -81,6 +84,7 @@ lto = "thin"
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
+
 
 [profile.bench]
 lto = "thin"

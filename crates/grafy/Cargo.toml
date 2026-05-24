@@ -74,6 +74,9 @@ regex = { workspace = true }
 rmcp = { workspace = true }
 tokio = { workspace = true }
 
+# Faster allocator
+mimalloc = { workspace = true }
+
 [dev-dependencies]
 tempfile = { workspace = true }
 redb = { workspace = true }
