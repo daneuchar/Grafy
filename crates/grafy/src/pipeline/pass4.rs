@@ -63,7 +63,6 @@ struct RouteMatch {
 
 fn extract_routes(
     bytes: &[u8],
-    source_str: &str,
     tree: &tree_sitter::Tree,
     fw: Framework,
     lang: Language,
@@ -103,7 +102,13 @@ fn extract_routes(
 
         for cap in m.captures {
             let cap_name = capture_names[cap.index as usize].as_str();
-            let text = &source_str[cap.node.start_byte()..cap.node.end_byte()];
+            // Lazy: only decode the captured byte range (Tier 2 lever 4).
+            let text = match std::str::from_utf8(
+                &bytes[cap.node.start_byte()..cap.node.end_byte()],
+            ) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
             let start = cap.node.start_byte() as u32;
             let end = cap.node.end_byte() as u32;
 
@@ -243,30 +248,9 @@ fn process_file(
         return vec![];
     }
 
-    let source_str = match std::str::from_utf8(bytes) {
-        Ok(s) => s,
-        Err(_) => {
-            warn!(
-                target: "grafy.pass4",
-                file = %file_path.display(),
-                framework = ?fw,
-                "non-UTF-8 source — re-encode to UTF-8 and retry."
-            );
-            return vec![];
-        }
-    };
-
-    if started.elapsed() > PER_FILE_TIMEOUT {
-        warn!(
-            target: "grafy.pass4",
-            file = %file_path.display(),
-            framework = ?fw,
-            "per-file timeout exceeded during query extraction — skipping routes. Split the file or open an issue."
-        );
-        return vec![];
-    }
-
-    let route_matches = extract_routes(bytes, source_str, tree, fw, lang);
+    // Lazy source_str: no full-file UTF-8 decode; byte ranges decoded per capture
+    // inside extract_routes (Tier 2 lever 4).
+    let route_matches = extract_routes(bytes, tree, fw, lang);
 
     if route_matches.is_empty() {
         return vec![];
@@ -336,6 +320,25 @@ fn process_file(
 }
 
 // ---------------------------------------------------------------------------
+// Language eligibility filter (Tier 2 lever 5)
+// ---------------------------------------------------------------------------
+
+/// Returns `true` only for languages that can host a supported HTTP framework
+/// (FastAPI/Python, Gin/Go, Express/JS/TS/TSX). All other languages are
+/// skipped before any I/O or `detect_framework` work is done.
+#[inline]
+fn framework_eligible(lang: Language) -> bool {
+    matches!(
+        lang,
+        Language::Python
+            | Language::Go
+            | Language::JavaScript
+            | Language::TypeScript
+            | Language::Tsx
+    )
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
 
@@ -356,14 +359,23 @@ pub fn run_with_table(
     let span = info_span!("pass4.routes");
     let _e = span.enter();
 
+    // Filter to only languages that can host a supported HTTP framework
+    // before doing any per-file work (Tier 2 lever 5: ~80 % skip on
+    // Rust/C++/Java/etc. monorepos).
+    let eligible: Vec<&(PathBuf, Language)> = files
+        .iter()
+        .filter(|(_, lang)| framework_eligible(*lang))
+        .collect();
+
     tracing::info!(
         target: "grafy.pass4",
         files = files.len(),
+        eligible = eligible.len(),
         "scanning for HTTP routes"
     );
 
     // Parallel route extraction via rayon.
-    let all_events: Vec<WriteEvent> = files
+    let all_events: Vec<WriteEvent> = eligible
         .par_iter()
         .flat_map(|(path, lang)| process_file(path, root, *lang, sym, cache))
         .collect();

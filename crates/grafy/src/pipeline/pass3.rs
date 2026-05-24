@@ -106,10 +106,21 @@ pub struct SymbolTable {
 
 impl SymbolTable {
     fn build(events: &[DefinitionEvent], root: &Path) -> Self {
+        // Pre-count unique files for capacity hints (Tier 2 lever 3).
+        let unique_file_count = {
+            let mut seen = HashSet::with_capacity(events.len() / 4 + 1);
+            for ev in events {
+                seen.insert(&ev.file_path);
+            }
+            seen.len()
+        };
+
         let mut fqn_to_id: HashMap<String, u64> = HashMap::with_capacity(events.len());
         let mut short_name_index: HashMap<String, Vec<u64>> = HashMap::with_capacity(events.len());
-        let mut file_defs: HashMap<PathBuf, Vec<(String, u64)>> = HashMap::new();
-        let mut defs_by_range: HashMap<PathBuf, Vec<(u32, u32, u64)>> = HashMap::new();
+        let mut file_defs: HashMap<PathBuf, Vec<(String, u64)>> =
+            HashMap::with_capacity(unique_file_count);
+        let mut defs_by_range: HashMap<PathBuf, Vec<(u32, u32, u64)>> =
+            HashMap::with_capacity(unique_file_count);
 
         for ev in events {
             let rel_path = ev
@@ -332,7 +343,6 @@ struct ImportBinding {
 
 fn extract_call_sites(
     bytes: &[u8],
-    source_str: &str,
     tree: &tree_sitter::Tree,
     lang: Language,
 ) -> Vec<CallSite> {
@@ -371,7 +381,13 @@ fn extract_call_sites(
             if cap_name.starts_with('_') {
                 continue; // internal predicate anchors
             }
-            let text = &source_str[cap.node.start_byte()..cap.node.end_byte()];
+            // Lazy: only decode the captured byte range (Tier 2 lever 4).
+            let text = match std::str::from_utf8(
+                &bytes[cap.node.start_byte()..cap.node.end_byte()],
+            ) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
             match cap_name {
                 "call.name" => {
                     call_byte_start = cap.node.start_byte() as u32;
@@ -396,7 +412,6 @@ fn extract_call_sites(
 
 fn extract_imports(
     bytes: &[u8],
-    source_str: &str,
     tree: &tree_sitter::Tree,
     lang: Language,
 ) -> Vec<ImportBinding> {
@@ -434,7 +449,13 @@ fn extract_imports(
             if cap_name.starts_with('_') {
                 continue;
             }
-            let text = &source_str[cap.node.start_byte()..cap.node.end_byte()];
+            // Lazy: only decode the captured byte range (Tier 2 lever 4).
+            let text = match std::str::from_utf8(
+                &bytes[cap.node.start_byte()..cap.node.end_byte()],
+            ) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
             match cap_name {
                 "import.name" => import_name = Some(text.to_owned()),
                 "import.module" => import_module = Some(text.to_owned()),
@@ -623,19 +644,6 @@ fn resolve_file(
         (&bytes_owned, &tree_owned)
     };
 
-    let source_str = match std::str::from_utf8(bytes) {
-        Ok(s) => s,
-        Err(_) => {
-            warn!(
-                target: "grafy.pass3",
-                file = %file_path.display(),
-                language = lang.as_str(),
-                "non-UTF-8 source — re-encode to UTF-8 and retry."
-            );
-            return vec![];
-        }
-    };
-
     if started.elapsed() > PER_FILE_TIMEOUT {
         warn!(
             target: "grafy.pass3",
@@ -646,8 +654,10 @@ fn resolve_file(
         return vec![];
     }
 
-    let call_sites = extract_call_sites(bytes, source_str, tree, lang);
-    let imports = extract_imports(bytes, source_str, tree, lang);
+    // Lazy source_str: no full-file UTF-8 decode; byte ranges decoded per capture
+    // inside extract_call_sites / extract_imports (Tier 2 lever 4).
+    let call_sites = extract_call_sites(bytes, tree, lang);
+    let imports = extract_imports(bytes, tree, lang);
 
     if started.elapsed() > PER_FILE_TIMEOUT {
         warn!(
@@ -756,17 +766,16 @@ pub fn run_with_table(
         "resolving call edges"
     );
 
-    // Parallel resolution via rayon.
-    let all_edges: Vec<EdgeWriteEvent> = files
-        .par_iter()
-        .flat_map(|(path, lang)| resolve_file(path, root, *lang, sym, cache))
-        .collect();
-
-    let edge_count = all_edges.len();
-
-    for ev in all_edges {
-        let _ = write_tx.send(WriteEvent::Edge(ev));
-    }
+    // Parallel resolution via rayon — stream edges directly to the writer
+    // thread without collecting into an intermediate Vec (Tier 2 lever 2).
+    let edge_count = std::sync::atomic::AtomicUsize::new(0);
+    files.par_iter().for_each_with(write_tx, |tx, (path, lang)| {
+        for ev in resolve_file(path, root, *lang, sym, cache) {
+            edge_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let _ = tx.send(WriteEvent::Edge(ev));
+        }
+    });
+    let edge_count = edge_count.load(std::sync::atomic::Ordering::Relaxed);
 
     tracing::info!(
         target: "grafy.pass3",

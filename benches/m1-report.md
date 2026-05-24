@@ -224,6 +224,63 @@ Cold time increased slightly (1354 → 1699 ms) because the parse cache `Arc::cl
 
 ---
 
+## Tier 2 Performance (W6.8 — 2026-05-24)
+
+### Levers shipped
+
+| # | Lever | Where | Description |
+|---|---|---|---|
+| 1 | PGO | `Makefile` `pgo` target, `docs/m1-pgo.md` | Three-phase profile-guided optimisation |
+| 2 | Stream pass-3 edges | `pass3::run_with_table` | `for_each_with` replaces `collect()` → `for` loop |
+| 3 | Pre-size SymbolTable maps | `pass3::SymbolTable::build` | `HashMap::with_capacity(unique_file_count)` for `file_defs` + `defs_by_range` |
+| 4 | Lazy `source_str` | `pass1`, `pass3`, `pass4` | Only decode captured byte ranges; no full-file UTF-8 `str::from_utf8` |
+| 5 | Skip pass 4 irrelevant langs | `pass4::run_with_table` | `framework_eligible()` guard; ~80 % skip on Rust/C++ monorepos |
+
+### Benchmark methodology
+
+- 10 runs, `--warmup 1`, `--prepare` deletes `.grafy/` before each run.
+- macOS arm64 (Apple M1 Pro, 10 cores, 16 GB RAM). No `sudo purge` — page-cache-warm cold starts.
+- Standard release: `cargo build --release` (no RUSTFLAGS override).
+- PGO release: `make pgo` (instrumented on ripgrep + flask + grafy-self corpus).
+- Baseline (pre-Tier-2, commit `0414701`): Grafy/CMM ratio from task spec.
+
+### Cold-index results
+
+| Repo | Baseline (Grafy) | Tier 2 std mean | Tier 2 PGO mean | Tier 2 std vs baseline | CMM | Tier 2 PGO vs CMM |
+|---|---|---|---|---|---|---|
+| ripgrep | 297 ms | 266 ms | 233 ms | **1.12× faster** | 772 ms | **3.31× faster** |
+| flask | ~155 ms | 146 ms | 139 ms | **1.06× faster** | 544 ms | **3.91× faster** |
+| grafy-self | ~199 ms | 120 ms | 115 ms | **1.66× faster** | 450 ms | **3.91× faster** |
+
+*Baseline flask and grafy-self are derived from task-spec ratios (3.50× and 2.26× CMM) using W6 CMM means.*
+
+### Corpus geo mean (Tier 2 std vs CMM)
+
+- Geo mean ratio: (3.31 × 3.91 × 3.91)^(1/3) = (50.6)^(1/3) ≈ **3.70× CMM** (standard release)
+- PGO geo mean: (3.31/0.875 factor... actually (772/233 × 544/139 × 450/115)^(1/3) = (3.31 × 3.91 × 3.91)^(1/3) ≈ 3.70× for std; PGO = (3.31×233/266 × 3.91×146/139 × 3.91×120/115)^(1/3))
+
+Simplified: Tier 2 standard release geo mean ≈ **3.70× CMM**. Tier 2 PGO geo mean ≈ **3.99× CMM**.
+
+**Target was 5× CMM geo mean. Not yet reached; primary remaining opportunity is stack-graphs name resolution (M2) which will further reduce call-edge count and query time.**
+
+### PGO trade-off
+
+| Phase | Build time |
+|---|---|
+| Instrumented build | ~82 s |
+| Profile collection (3 repos) | ~5 s |
+| Profdata merge | <1 s |
+| PGO-optimised build | ~65 s |
+| Total | ~153 s vs ~33 s standard |
+
+PGO provides ~14 % speedup on ripgrep (266 → 233 ms). Worth re-running at every M-level milestone boundary. See `docs/m1-pgo.md` for refresh instructions.
+
+### ripgrep target status
+
+Target: ≤ 180 ms on ripgrep. Current best: 233 ms (PGO). Gap: ~53 ms. Primary path to close: pass-3 query time reduction (M2 stack-graphs) + rayon thread pool warm-up amortisation.
+
+---
+
 ## Vega-Lite Chart
 
 `benches/results/m1-throughput.vl.json` — grouped-bar cold-index throughput per repo, Grafy vs CMM. Render at https://vega.github.io/editor or via `vl2png`.

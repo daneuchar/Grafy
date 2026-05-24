@@ -89,3 +89,10 @@ strip = "symbols"
 [profile.bench]
 lto = "thin"
 debug = true
+
+# PGO instrumented build — used by `make pgo` phase 1 only.
+# Do not use for regular releases; standard [profile.release] is unaffected.
+[profile.release-pgo]
+inherits = "release"
+# strip must be off so the instrumentation runtime can write raw profiles.
+strip = false

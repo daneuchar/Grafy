@@ -223,19 +223,6 @@ fn process_file(
         .map(|s| s.to_string())
         .collect();
 
-    let source_str = match std::str::from_utf8(&bytes) {
-        Ok(s) => s,
-        Err(_) => {
-            warn!(
-                target: "grafy.pass1",
-                file = %path.display(),
-                language = lang.as_str(),
-                "non-UTF-8 source — re-encode to UTF-8 and retry."
-            );
-            return;
-        }
-    };
-
     let mut cursor = QueryCursor::new();
     let root_node = tree.root_node();
 
@@ -258,9 +245,13 @@ fn process_file(
                 }
             } else if cap_name.ends_with(".name") || cap_name.ends_with(".table") {
                 // Use the first name capture; skip table prefix captures.
+                // Lazy: only decode the captured byte range (Tier 2 lever 4).
                 if name_text.is_none() && !cap_name.ends_with(".table") {
-                    let text = &source_str[node.start_byte()..node.end_byte()];
-                    name_text = Some(text.to_owned());
+                    if let Ok(text) =
+                        std::str::from_utf8(&bytes[node.start_byte()..node.end_byte()])
+                    {
+                        name_text = Some(text.to_owned());
+                    }
                 }
             }
         }
