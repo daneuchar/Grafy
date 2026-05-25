@@ -1,0 +1,98 @@
+{
+  "lang": "python",
+  "repo": "flask",
+  "sha": "954f5684e4841aad84a8eec7ace7b81a0d3f6831",
+  "include_edges": "calls",
+  "ground_truth_pairs": 6622,
+  "tool_pairs": 1599,
+  "true_pos": 1064,
+  "false_pos": 535,
+  "false_neg": 5558,
+  "precision": 0.66541588492808,
+  "recall": 0.160676532769556,
+  "f1": 0.25884928840773624,
+  "missing_sample": [
+    [
+      "test_environ_base_modified",
+      "__init__"
+    ],
+    [
+      "abort",
+      "args"
+    ],
+    [
+      "_render",
+      "ensure_sync"
+    ],
+    [
+      "test",
+      "Markup"
+    ],
+    [
+      "test_no_setup_after_first_request",
+      "AssertionError"
+    ],
+    [
+      "test_abort_with_app",
+      "__init__"
+    ],
+    [
+      "test_test_client_context_binding",
+      "RuntimeError"
+    ],
+    [
+      "app_context_processor",
+      "T_template_context_processor"
+    ],
+    [
+      "after_request_signal",
+      "append"
+    ],
+    [
+      "handle_exception",
+      "__init__"
+    ]
+  ],
+  "extra_sample": [
+    [
+      "my_reverse",
+      "template_filter"
+    ],
+    [
+      "test_implicit_head",
+      "get"
+    ],
+    [
+      "test_inject_blueprint_url_defaults",
+      "test_request_context"
+    ],
+    [
+      "test_template_test",
+      "register_blueprint"
+    ],
+    [
+      "app_forbidden",
+      "route"
+    ],
+    [
+      "handle_http",
+      "errorhandler"
+    ],
+    [
+      "test_max_cookie_size",
+      "pop"
+    ],
+    [
+      "req_ctx",
+      "test_request_context"
+    ],
+    [
+      "test_inject_blueprint_url_defaults",
+      "inject_url_defaults"
+    ],
+    [
+      "test_create",
+      "post"
+    ]
+  ]
+}

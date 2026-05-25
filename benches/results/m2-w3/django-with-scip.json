@@ -1,0 +1,98 @@
+{
+  "lang": "python",
+  "repo": "django",
+  "sha": "a3a74e9f58b5fecca8cd7aee2bd9894dbac04db6",
+  "include_edges": "calls,scip",
+  "ground_truth_pairs": 166174,
+  "tool_pairs": 118392,
+  "true_pos": 87230,
+  "false_pos": 31162,
+  "false_neg": 78944,
+  "precision": 0.7367896479491858,
+  "recall": 0.5249316980995824,
+  "f1": 0.6130739441816662,
+  "missing_sample": [
+    [
+      "replace_expressions",
+      "negated"
+    ],
+    [
+      "test_simple_palette",
+      "self"
+    ],
+    [
+      "test_login_url_with_querystring",
+      "self"
+    ],
+    [
+      "reverse",
+      "app_dict"
+    ],
+    [
+      "OGRGeometry",
+      "_get_srid"
+    ],
+    [
+      "has_perms",
+      "ValueError"
+    ],
+    [
+      "test_in_bulk_values_list_fields_pk",
+      "self"
+    ],
+    [
+      "__repr__",
+      "level"
+    ],
+    [
+      "test_insensitive_patterns_escape",
+      "self"
+    ],
+    [
+      "pre_save_listener",
+      "self"
+    ]
+  ],
+  "extra_sample": [
+    [
+      "as_sql",
+      "datetime_extract_sql"
+    ],
+    [
+      "test_logout_with_post",
+      "assertContains"
+    ],
+    [
+      "test_ljust01",
+      "render_to_string"
+    ],
+    [
+      "CaseTestModel",
+      "PositiveSmallIntegerField"
+    ],
+    [
+      "test_archive_view_template_suffix",
+      "dates"
+    ],
+    [
+      "py",
+      "CovarPop"
+    ],
+    [
+      "sitemap",
+      "callable"
+    ],
+    [
+      "test_cut06",
+      "render_to_string"
+    ],
+    [
+      "py",
+      "MySQLGISSchemaEditor"
+    ],
+    [
+      "test_datetime_lower_bound_higher",
+      "DateTimeRangeField"
+    ]
+  ]
+}

@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 use ignore::WalkBuilder;
 
+pub mod grafy_store;
 pub mod scip_f1;
 pub mod sg_to_scip;
 

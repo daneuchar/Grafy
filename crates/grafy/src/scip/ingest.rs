@@ -30,9 +30,7 @@ use scip::types::{Index, Occurrence};
 use tracing::{debug, info, warn};
 
 use crate::pipeline::channels::{EdgeWriteEvent, WriteEvent};
-use crate::store::{
-    EdgeKind, NodeRecord, Store, EDGES_TABLE, NODES_BY_FILE_TABLE, NODES_TABLE,
-};
+use crate::store::{EdgeKind, NodeRecord, Store, EDGES_TABLE, NODES_BY_FILE_TABLE, NODES_TABLE};
 
 /// Definition role bit per `scip.proto` `SymbolRole::Definition` = 1.
 const DEFINITION_ROLE: i32 = 1;
@@ -214,14 +212,11 @@ fn load_indexes(store: &Store) -> Result<(FqnIndex, RangeIndex)> {
             continue;
         };
 
-        by_range
-            .entry(file.to_owned())
-            .or_default()
-            .push(FileNode {
-                id,
-                start: rec.byte_start,
-                end: rec.byte_end,
-            });
+        by_range.entry(file.to_owned()).or_default().push(FileNode {
+            id,
+            start: rec.byte_start,
+            end: rec.byte_end,
+        });
 
         // Index by tail of FQN (after the last `::` / `.` separator).
         let tail = fqn_tail(&rec.fqn);

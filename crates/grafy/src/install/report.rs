@@ -34,7 +34,11 @@ pub fn print_indexer_status<W: Write>(out: &mut W) -> std::io::Result<()> {
 
     // Print one row per relevant language.
     let rows: &[(Language, &str, &str)] = &[
-        (Language::Python, "python", "npm install -g @sourcegraph/scip-python"),
+        (
+            Language::Python,
+            "python",
+            "npm install -g @sourcegraph/scip-python",
+        ),
         (
             Language::TypeScript,
             "ts/js",
@@ -51,11 +55,7 @@ pub fn print_indexer_status<W: Write>(out: &mut W) -> std::io::Result<()> {
             "c/c++",
             "see https://github.com/sourcegraph/scip-clang/releases",
         ),
-        (
-            Language::Rust,
-            "rust",
-            "rustup component add rust-analyzer",
-        ),
+        (Language::Rust, "rust", "rustup component add rust-analyzer"),
     ];
 
     for (lang, label, install_cmd) in rows {

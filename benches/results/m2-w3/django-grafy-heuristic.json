@@ -1,0 +1,29 @@
+{
+  "results": [
+    {
+      "command": "env GRAFY_SCIP_DISABLE=1 ./target/release/grafy index /tmp/grafy-m2-w3/bench-django",
+      "mean": 2.7674108119266667,
+      "stddev": 0.1862072440096833,
+      "median": 2.83635008926,
+      "user": 7.218975973333333,
+      "system": 0.8951027666666667,
+      "min": 2.55656467326,
+      "max": 2.9093176732600003,
+      "times": [
+        2.83635008926,
+        2.9093176732600003,
+        2.55656467326
+      ],
+      "memory_usage_byte": [
+        713211904,
+        713211904,
+        718782464
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

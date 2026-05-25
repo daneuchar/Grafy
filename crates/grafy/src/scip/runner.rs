@@ -195,10 +195,7 @@ fn build_command(indexer: &IndexerInfo, repo: &Path, out_path: &Path) -> Result<
                     repo.display()
                 ));
             }
-            cmd.arg("--output")
-                .arg(&out_arg)
-                .arg("--compdb")
-                .arg(&cdb);
+            cmd.arg("--output").arg(&out_arg).arg("--compdb").arg(&cdb);
         }
         ("rust-analyzer", _) => {
             // rust-analyzer scip <path> writes ./index.scip; we rename after.

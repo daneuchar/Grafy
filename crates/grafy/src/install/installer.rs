@@ -54,11 +54,29 @@ pub fn run_with_scip(dry_run: bool) -> Vec<InstallEntry> {
         .collect::<std::collections::HashSet<_>>();
 
     vec![
-        install_one("scip-python", &already, &prereqs, dry_run, install_scip_python),
-        install_one("scip-typescript", &already, &prereqs, dry_run, install_scip_typescript),
+        install_one(
+            "scip-python",
+            &already,
+            &prereqs,
+            dry_run,
+            install_scip_python,
+        ),
+        install_one(
+            "scip-typescript",
+            &already,
+            &prereqs,
+            dry_run,
+            install_scip_typescript,
+        ),
         install_one("scip-go", &already, &prereqs, dry_run, install_scip_go),
         install_one("scip-java", &already, &prereqs, dry_run, install_scip_java),
-        install_one("rust-analyzer", &already, &prereqs, dry_run, install_rust_analyzer),
+        install_one(
+            "rust-analyzer",
+            &already,
+            &prereqs,
+            dry_run,
+            install_rust_analyzer,
+        ),
     ]
 }
 

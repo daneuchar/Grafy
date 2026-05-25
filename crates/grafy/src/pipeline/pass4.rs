@@ -103,9 +103,8 @@ fn extract_routes(
         for cap in m.captures {
             let cap_name = capture_names[cap.index as usize].as_str();
             // Lazy: only decode the captured byte range (Tier 2 lever 4).
-            let text = match std::str::from_utf8(
-                &bytes[cap.node.start_byte()..cap.node.end_byte()],
-            ) {
+            let text = match std::str::from_utf8(&bytes[cap.node.start_byte()..cap.node.end_byte()])
+            {
                 Ok(s) => s,
                 Err(_) => continue,
             };

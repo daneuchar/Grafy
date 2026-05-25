@@ -1,0 +1,98 @@
+{
+  "lang": "python",
+  "repo": "flask",
+  "sha": "954f5684e4841aad84a8eec7ace7b81a0d3f6831",
+  "include_edges": "calls,scip",
+  "ground_truth_pairs": 6622,
+  "tool_pairs": 2577,
+  "true_pos": 1942,
+  "false_pos": 635,
+  "false_neg": 4680,
+  "precision": 0.7535894450911913,
+  "recall": 0.2932648746602235,
+  "f1": 0.42221980650070656,
+  "missing_sample": [
+    [
+      "_load_form_data",
+      "debug"
+    ],
+    [
+      "_merge_blueprint_funcs",
+      "before_request_funcs"
+    ],
+    [
+      "redirect",
+      "app"
+    ],
+    [
+      "test_session_secret_key_fallbacks",
+      "client"
+    ],
+    [
+      "test_with_appcontext",
+      "testcmd"
+    ],
+    [
+      "github_link",
+      "rawtext"
+    ],
+    [
+      "check",
+      "next"
+    ],
+    [
+      "has_request",
+      "property"
+    ],
+    [
+      "before_request",
+      "before_request_funcs"
+    ],
+    [
+      "_reset_os_environ",
+      "_standard_os_environ"
+    ]
+  ],
+  "extra_sample": [
+    [
+      "test_empty_url_defaults",
+      "get"
+    ],
+    [
+      "get_stuff_3",
+      "template_global"
+    ],
+    [
+      "test_teardown_on_pop",
+      "push"
+    ],
+    [
+      "py",
+      "main"
+    ],
+    [
+      "py",
+      "Config"
+    ],
+    [
+      "test_session_transactions_keep_context",
+      "get"
+    ],
+    [
+      "test_flaskgroup_nested",
+      "invoke"
+    ],
+    [
+      "test_add_template_filter_with_name_and_template",
+      "get"
+    ],
+    [
+      "test_templates_and_static",
+      "get"
+    ],
+    [
+      "test_url_generation_requires_server_name",
+      "app_context"
+    ]
+  ]
+}

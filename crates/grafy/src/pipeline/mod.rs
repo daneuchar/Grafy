@@ -591,11 +591,7 @@ fn run_scip_ingest(root: &Path, languages_seen: &HashSet<u8>) {
             }
         };
         match crate::scip::ingest::ingest_scip_with_snapshot(
-            &scip_path,
-            &snapshot,
-            root,
-            &write_tx,
-            ix.name,
+            &scip_path, &snapshot, root, &write_tx, ix.name,
         ) {
             Ok(rep) => info!(
                 target: "grafy.scip",
@@ -632,10 +628,7 @@ fn maybe_show_first_run_banner(root: &Path) {
         let _ = std::fs::write(&marker, b"shown\n");
         return;
     }
-    let repo_name = root
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("repo");
+    let repo_name = root.file_name().and_then(|s| s.to_str()).unwrap_or("repo");
     eprintln!(
         "grafy: indexed {repo_name} (heuristic resolution).\n  For binding-precise references, install a SCIP indexer:\n    grafy install --with-scip\n  Grafy auto-detects them on the next run.\n  Dismiss permanently: touch {}/.grafy/.first-run",
         root.display()

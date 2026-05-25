@@ -1,0 +1,98 @@
+{
+  "lang": "python",
+  "repo": "django",
+  "sha": "a3a74e9f58b5fecca8cd7aee2bd9894dbac04db6",
+  "include_edges": "calls",
+  "ground_truth_pairs": 166174,
+  "tool_pairs": 78800,
+  "true_pos": 52043,
+  "false_pos": 26757,
+  "false_neg": 114131,
+  "precision": 0.6604441624365482,
+  "recall": 0.3131837712277492,
+  "f1": 0.4248859062594397,
+  "missing_sample": [
+    [
+      "ModelsPermissionsChecksTests",
+      "SimpleTestCase"
+    ],
+    [
+      "CustomWSGIRequest",
+      "CustomMultiPartParser"
+    ],
+    [
+      "_mock_subprocess_run",
+      "__init__"
+    ],
+    [
+      "void_output",
+      "func"
+    ],
+    [
+      "test_ticket8597",
+      "datetime"
+    ],
+    [
+      "_get_session_key",
+      "salt"
+    ],
+    [
+      "test_related_popup_incorrect_close",
+      "site"
+    ],
+    [
+      "test_annotated_ordering",
+      "self"
+    ],
+    [
+      "test_mixed_type_annotation_numbers",
+      "self"
+    ],
+    [
+      "AuthorWithLongColumn",
+      "Model"
+    ]
+  ],
+  "extra_sample": [
+    [
+      "test_func_index_collate_f_ordered",
+      "quote_name"
+    ],
+    [
+      "assemble_as_sql",
+      "db_type"
+    ],
+    [
+      "django/contrib/gis/static/gis/js/OLMapWidget/initMapWidgetInSection",
+      "django/contrib/gis/static/gis/js/OLMapWidget/MapWidget"
+    ],
+    [
+      "test_alter_field_reloads_state_on_transitive_attname_to_field_type_change",
+      "AlterField"
+    ],
+    [
+      "test_custom_perms",
+      "create"
+    ],
+    [
+      "get_uniques",
+      "values"
+    ],
+    [
+      "test_no_warning_at_verbosity_1",
+      "join"
+    ],
+    [
+      "test_archive_view_custom_sorting",
+      "order_by"
+    ],
+    [
+      "min/I",
+      "contains"
+    ],
+    [
+      "_build_app_dict",
+      "values"
+    ]
+  ]
+}

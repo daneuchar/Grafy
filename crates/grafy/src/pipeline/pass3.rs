@@ -341,25 +341,19 @@ struct ImportBinding {
     module: String,
 }
 
-fn extract_call_sites(
-    bytes: &[u8],
-    tree: &tree_sitter::Tree,
-    lang: Language,
-) -> Vec<CallSite> {
-    let query_arc = match crate::pipeline::queries::get(
-        lang,
-        crate::pipeline::queries::QueryKind::Calls,
-    ) {
-        Ok(q) => q,
-        Err(e) => {
-            debug!(
-                target: "grafy.pass3",
-                language = lang.as_str(),
-                "calls.scm compile error: {e}"
-            );
-            return vec![];
-        }
-    };
+fn extract_call_sites(bytes: &[u8], tree: &tree_sitter::Tree, lang: Language) -> Vec<CallSite> {
+    let query_arc =
+        match crate::pipeline::queries::get(lang, crate::pipeline::queries::QueryKind::Calls) {
+            Ok(q) => q,
+            Err(e) => {
+                debug!(
+                    target: "grafy.pass3",
+                    language = lang.as_str(),
+                    "calls.scm compile error: {e}"
+                );
+                return vec![];
+            }
+        };
     let query = &*query_arc;
 
     let capture_names: Vec<String> = query
@@ -382,9 +376,8 @@ fn extract_call_sites(
                 continue; // internal predicate anchors
             }
             // Lazy: only decode the captured byte range (Tier 2 lever 4).
-            let text = match std::str::from_utf8(
-                &bytes[cap.node.start_byte()..cap.node.end_byte()],
-            ) {
+            let text = match std::str::from_utf8(&bytes[cap.node.start_byte()..cap.node.end_byte()])
+            {
                 Ok(s) => s,
                 Err(_) => continue,
             };
@@ -410,25 +403,19 @@ fn extract_call_sites(
     sites
 }
 
-fn extract_imports(
-    bytes: &[u8],
-    tree: &tree_sitter::Tree,
-    lang: Language,
-) -> Vec<ImportBinding> {
-    let query_arc = match crate::pipeline::queries::get(
-        lang,
-        crate::pipeline::queries::QueryKind::Imports,
-    ) {
-        Ok(q) => q,
-        Err(e) => {
-            debug!(
-                target: "grafy.pass3",
-                language = lang.as_str(),
-                "imports.scm compile error: {e}"
-            );
-            return vec![];
-        }
-    };
+fn extract_imports(bytes: &[u8], tree: &tree_sitter::Tree, lang: Language) -> Vec<ImportBinding> {
+    let query_arc =
+        match crate::pipeline::queries::get(lang, crate::pipeline::queries::QueryKind::Imports) {
+            Ok(q) => q,
+            Err(e) => {
+                debug!(
+                    target: "grafy.pass3",
+                    language = lang.as_str(),
+                    "imports.scm compile error: {e}"
+                );
+                return vec![];
+            }
+        };
     let query = &*query_arc;
 
     let capture_names: Vec<String> = query
@@ -450,9 +437,8 @@ fn extract_imports(
                 continue;
             }
             // Lazy: only decode the captured byte range (Tier 2 lever 4).
-            let text = match std::str::from_utf8(
-                &bytes[cap.node.start_byte()..cap.node.end_byte()],
-            ) {
+            let text = match std::str::from_utf8(&bytes[cap.node.start_byte()..cap.node.end_byte()])
+            {
                 Ok(s) => s,
                 Err(_) => continue,
             };
@@ -769,12 +755,14 @@ pub fn run_with_table(
     // Parallel resolution via rayon — stream edges directly to the writer
     // thread without collecting into an intermediate Vec (Tier 2 lever 2).
     let edge_count = std::sync::atomic::AtomicUsize::new(0);
-    files.par_iter().for_each_with(write_tx, |tx, (path, lang)| {
-        for ev in resolve_file(path, root, *lang, sym, cache) {
-            edge_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let _ = tx.send(WriteEvent::Edge(ev));
-        }
-    });
+    files
+        .par_iter()
+        .for_each_with(write_tx, |tx, (path, lang)| {
+            for ev in resolve_file(path, root, *lang, sym, cache) {
+                edge_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let _ = tx.send(WriteEvent::Edge(ev));
+            }
+        });
     let edge_count = edge_count.load(std::sync::atomic::Ordering::Relaxed);
 
     tracing::info!(
